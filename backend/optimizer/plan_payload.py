@@ -33,10 +33,15 @@ def to_plan_payload(result, data, window_start, window_days, preferences, solve_
                           "display_title": review.title, "source_assignment": review.title,
                           "status": "not_started", "due_at": wall(review.due_at),
                           "priority_weight": 1, "est_duration_min": review.duration_min})
+        # locked: true for a real fixed block, same as always, OR for a
+        # flexible session that came in via locked_sessions (SCHEMA.md's own
+        # sense of "locked" -- frozen from re-solves -- already matches what
+        # a preserved-past session is; result.locked_ids is how
+        # build_and_solve reports which ids those were this solve).
         sessions.append({"_id": b.id, "task_id": b.task_id, "course_id": b.course_id,
                          "type": "fixed" if fixed else "flexible", "action": b.title,
                          "intensity": "moderate", "duration_min": round((b.end-b.start).total_seconds()/60),
-                         "locked": fixed, "completed": False,
+                         "locked": fixed or b.id in result.locked_ids, "completed": False,
                          "start": wall(b.start), "end": wall(b.end)})
     gap = None
     if result.objective_value is not None and result.best_bound is not None and result.objective_value != 0:

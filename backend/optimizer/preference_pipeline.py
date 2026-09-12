@@ -186,6 +186,50 @@ def register_pipeline(app):
             # tasks contributes its class blocks and nothing else -- see CourseOverride.
             tasks=[t for t in api.DATA.tasks if t.course_id in selected],
         )
+        # Past-preserving lock: whatever the previous cached plan showed for
+        # flexible sessions already behind "now" gets fed into THIS solve as
+        # locked, mandatory intervals -- not merged in afterward. A fresh
+        # solve should never silently rewrite what the user already saw
+        # happen, and the only way to actually guarantee that (not just
+        # hope two independent solves agree) is to make CP-SAT's own
+        # AddNoOverlap aware of them, the same way a fixed class block
+        # already works. `now` is real wall-clock time (not the fixed
+        # WINDOW_START demo anchor), kept tz-aware in the same tz
+        # WINDOW_START itself uses throughout this block -- scheduler.py's
+        # own window_start/window_end are tz-aware, and mixing naive/aware
+        # datetimes raises TypeError the moment this comparison actually
+        # runs against a non-empty locked set (found by testing multiple
+        # solves in a row, not by inspection -- the first solve after a
+        # cache clear has nothing to lock, so this path went unexercised
+        # until a second one). Only `type: "flexible"` sessions are locked
+        # -- fixed blocks (classes, routine) are regenerated identically
+        # every solve already, from `courses.meeting_times`/ROUTINE,
+        # deterministically by weekday.
+        now = datetime.now(api.WINDOW_START.tzinfo)
+        locked_sessions: list[scheduler.PlacedBlock] = []
+        try:
+            previous = mongo_state.load_plan_cache()
+            for s in (previous or {}).get("plan", {}).get("sessions", []):
+                if s.get("type") != "flexible":
+                    continue
+                # plan_payload.py's wall() strips tzinfo before serializing
+                # (wire format is naive local wall-clock); scheduler.py's own
+                # window_start/window_end are tz-aware -- re-attach the same
+                # fixed offset here or the comparisons inside build_and_solve
+                # raise "can't compare offset-naive and offset-aware
+                # datetimes" the moment locked_sessions is ever non-empty.
+                start = datetime.fromisoformat(s["start"]).replace(tzinfo=api.WINDOW_START.tzinfo)
+                if start >= now:
+                    continue  # still in the future -- this solve is free to decide it
+                end = datetime.fromisoformat(s["end"]).replace(tzinfo=api.WINDOW_START.tzinfo)
+                locked_sessions.append(scheduler.PlacedBlock(
+                    id=s["_id"], task_id=s.get("task_id"), course_id=s.get("course_id"),
+                    title=s.get("action", ""), kind="flexible",
+                    start=start, end=end,
+                ))
+        except Exception as exc:
+            print(f"[preference_pipeline] Could not load previous plan for past-locking ({exc}); solving with nothing locked.")
+
         if not _SOLVE_LOCK.acquire(timeout=25):
             raise HTTPException(503, "The optimizer is busy. Please retry.")
         try:
@@ -194,6 +238,8 @@ def register_pipeline(app):
                 data, window_start=api.WINDOW_START, window_days=api.WINDOW_DAYS,
                 preferences=[*api.ALWAYS_ON_DEFAULTS, *store.to_preferences()],
                 personal_blocks=api.ROUTINE,
+                locked_sessions=locked_sessions,
+                now_slot=max(0, int((now - api.WINDOW_START).total_seconds() // (scheduler.SLOT_MINUTES * 60))),
                 max_time_in_seconds=float(os.environ.get("BUDDY_SOLVE_SECONDS", "15")),
             )
             seconds = time.perf_counter()-started
@@ -214,22 +260,6 @@ def register_pipeline(app):
             raise HTTPException(409, {"message": "The optimizer could not find a usable schedule. Previous preferences and calendar are unchanged.", "status": result.status_name})
 
         plan = to_plan_payload(result, data, api.WINDOW_START, api.WINDOW_DAYS, preferences, seconds)
-
-        # Past-preserving merge: whatever the previous cached plan showed for
-        # times already behind "now" carries over untouched, rather than a
-        # fresh solve silently rewriting a slot the user already saw/acted
-        # on. `now` is real wall-clock time (not the fixed WINDOW_START demo
-        # anchor) in the same tz WINDOW_START itself uses, then stripped to
-        # match plan_payload.py's naive session timestamps.
-        try:
-            previous = mongo_state.load_plan_cache()
-        except Exception as exc:
-            previous = None
-            print(f"[preference_pipeline] Could not load previous plan for past-preservation ({exc}); using fresh solve as-is.")
-        if previous and previous.get("plan", {}).get("sessions"):
-            now = datetime.now(api.WINDOW_START.tzinfo).replace(tzinfo=None)
-            plan["sessions"] = mongo_state.merge_preserving_past(previous["plan"]["sessions"], plan["sessions"], now)
-
         response = {"preferences": preferences, "preference_calls": applied, "plan": plan}
 
         _try("preferences save", lambda: mongo_state.save_preferences(store))

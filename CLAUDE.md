@@ -164,12 +164,22 @@ implementation (none of it is wired to a real backend yet):
   way when nothing was customized. **Recalculate** (a button in the
   calendar view) is the explicit way to force a fresh solve on demand — same
   `/preferences/operations` real chat-triggered solves already use, just with
-  no new operations. Every solve now also merges in whatever the *previous*
-  cached plan showed for sessions whose `start` is already in the past
-  (real wall-clock time, not the demo's fixed `WINDOW_START` anchor) —
-  `mongo_state.merge_preserving_past()` — so a re-solve can't silently rewrite
-  a slot the user already saw happen; only sessions still in the future come
-  from the new solve.
+  no new operations. Every solve now also preserves whatever the *previous*
+  cached plan showed for flexible sessions whose `start` is already in the
+  past (real wall-clock time, not the demo's fixed `WINDOW_START` anchor) —
+  but as real, mandatory CP-SAT intervals (`scheduler.build_and_solve`'s
+  `locked_sessions` parameter), in the SAME `AddNoOverlap` pool a fixed class
+  block already sits in, not a Python-side concatenation of two independent
+  solves' outputs after the fact. The first version of this (a plain
+  past-sessions + future-sessions merge, `mongo_state.merge_preserving_past`,
+  now removed) had a real, live bug: `decompose.py` assigns a session's `_id`
+  deterministically from the task, not from any particular solve's
+  placement, so two *different* sessions — one frozen from an old solve,
+  one freshly placed by a new one — could legitimately land on overlapping
+  times, since nothing validated the union of two separately-solved session
+  sets against each other. Confirmed live (two real sessions overlapping by
+  15-45 minutes) before being fixed by making CP-SAT itself aware of the
+  locked sessions, which makes the guarantee mathematical instead of hopeful.
 
   `min_gap_between_sessions`, `spread_multi_session_tasks`, and
   `urgency_priority` are no longer `ALWAYS_ON_DEFAULTS` (an untouchable

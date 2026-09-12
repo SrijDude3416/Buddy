@@ -2,8 +2,15 @@
 Stage 2 of the two-stage pipeline: placement, via CP-SAT.
 
 Core mechanics, matching CLAUDE.md's "Scheduling engine (CP-SAT)" section:
-  - Everything (class blocks, off-hours, flexible sessions) is one shared list
-    of intervals; AddNoOverlap over that list is the only overlap rule.
+  - Everything (class blocks, off-hours, flexible sessions, and any
+    `locked_sessions` a caller wants preserved verbatim from a prior solve)
+    is one shared list of intervals; AddNoOverlap over that list is the only
+    overlap rule. This is why `locked_sessions` exists as a parameter here
+    rather than a Python-side merge after two separate solves: CP-SAT's own
+    no-overlap guarantee only ever covers the intervals actually IN one
+    model. Two independently-solved session sets, concatenated afterward,
+    have no such guarantee against each other -- found the hard way (see
+    preference_pipeline.py's git history for the bug this replaced).
   - A flexible session's start is domain-bounded by its own deadline.
   - Flexible sessions are OPTIONAL intervals (a presence bool each) rather
     than mandatory, so "can't fit everything" surfaces as a small set of
@@ -64,6 +71,7 @@ class SolveResult:
     best_bound: float | None
     placed: list[PlacedBlock]
     unplaced: list[PlacedBlock]
+    locked_ids: frozenset[str] = frozenset()  # which of `placed` came in via locked_sessions, not this solve
 
 
 def build_and_solve(
@@ -72,6 +80,7 @@ def build_and_solve(
     window_days: int,
     preferences: list[Preference] = (),
     personal_blocks: list[MeetingTime] = (),
+    locked_sessions: list[PlacedBlock] = (),
     now_slot: int = 0,
     max_time_in_seconds: float = 15.0,  # bumped from 10 -- see README.md's "Round 4" on solve-time variance
     num_search_workers: int | None = None,  # None -> os.cpu_count(); see README.md's "Round 5" before hardcoding this
@@ -182,12 +191,42 @@ def build_and_solve(
                 )
             )
 
+    # --- Locked sessions: prior placements (typically "already in the past
+    # by now") a caller wants preserved verbatim -- treated exactly like a
+    # fixed course block, a mandatory interval in the SAME AddNoOverlap pool,
+    # so CP-SAT itself guarantees no freshly-placed session can ever collide
+    # with one. Kind is preserved as given (a locked "flexible" session still
+    # reports kind="flexible" -- it renders like any other study session, it
+    # just isn't up for renegotiation this solve) -- only the id is tracked
+    # separately, so callers can tell "was this actually decided this solve."
+    locked_ids: set[str] = set()
+    for b in locked_sessions:
+        if b.start is None or b.end is None:
+            continue
+        if not (window_start <= b.start < window_end):
+            continue  # outside this window entirely; not this solve's concern
+        s, e = slot_of(b.start), slot_of(b.end)
+        if e <= s:
+            continue
+        iv = model.NewIntervalVar(s, e - s, e, f"locked_{b.id}")
+        all_intervals.append(iv)
+        placed_fixed.append(
+            PlacedBlock(id=b.id, task_id=b.task_id, course_id=b.course_id,
+                        title=b.title, kind=b.kind, start=b.start, end=b.end)
+        )
+        locked_ids.add(b.id)
+
     # --- Flexible sessions, decomposed from not-done tasks. Optional so an
     # individual session can come back "unplaced" instead of the whole solve
-    # failing.
-    sessions = decompose_all(data.tasks, data.courses) + generate_review_sessions(
-        data.courses, window_start, window_days
-    )
+    # failing. decompose_all/generate_review_sessions are pure functions of
+    # the task/course data, not of any prior solve -- they'd happily
+    # regenerate a session whose id is already locked above. Excluded here,
+    # not given a fresh CP-SAT variable: it's already decided.
+    sessions = [
+        s for s in decompose_all(data.tasks, data.courses)
+        + generate_review_sessions(data.courses, window_start, window_days)
+        if s.id not in locked_ids
+    ]
 
     # Urgency per task ("critical ratio"-style): remaining work per hour of
     # runway until due. A task's sessions all share one due_at, so summing
@@ -361,4 +400,4 @@ def build_and_solve(
             if sess.id in session_vars
         ]
 
-    return SolveResult(status_name, obj, bound, placed, unplaced)
+    return SolveResult(status_name, obj, bound, placed, unplaced, frozenset(locked_ids))

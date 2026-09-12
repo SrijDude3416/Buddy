@@ -24,11 +24,13 @@ error or cancelled request cannot leave a half-applied preference update"
   - Mongo is read from in two places: /preferences/defaults' cold start
     (first `plan_cache`, to skip solving entirely when nothing needs to
     change; then `preferences`, to seed a real solve with what was last
-    saved if there's no cache yet) and `apply_and_solve`'s own
-    past-preserving merge (reads the previous `plan_cache` to know what
-    "the past" looked like last time). Every other request still gets its
-    preference state from the browser-held `body.preferences` it already
-    sends -- unchanged from before this file existed.
+    saved if there's no cache yet) and `apply_and_solve`'s past-locking step
+    (reads the previous `plan_cache` to know which already-past flexible
+    sessions to hand `scheduler.build_and_solve` as `locked_sessions` --
+    see that function's docstring for why this moved into the solver
+    itself rather than staying a post-hoc merge here). Every other request
+    still gets its preference state from the browser-held `body.preferences`
+    it already sends -- unchanged from before this file existed.
 """
 from __future__ import annotations
 
@@ -148,47 +150,29 @@ def load_plan_cache(user_id: str = DEMO_USER_ID) -> dict | None:
     return doc
 
 
-def merge_preserving_past(old_sessions: list[dict], new_sessions: list[dict], now: datetime) -> list[dict]:
-    """A fresh solve should never silently rewrite what the user already saw
-    happen: once a session's start time is in the past, it's part of the
-    record, not something an unrelated preference change (or just clicking
-    Recalculate) should reshuffle out from under someone mid-day. Everything
-    still in the future is free to come entirely from the new solve.
-
-    `now` and every session's `start` are the same naive local wall-clock
-    datetimes plan_payload.py already returns (tzinfo stripped before
-    serializing) -- plain datetime comparison, not a tz-aware one.
-
-    `_id` is stable across solves for the same logical session -- decompose.py
-    assigns it deterministically from `{task.id}__s{n}` (a pure function of
-    the task, not of any particular solve's placement) -- but CP-SAT is free
-    to place that same id at a different time on every solve. That means the
-    SAME `_id` can legitimately be "past" in `old_sessions` (frozen at
-    whatever time it was last shown) and independently "future" in
-    `new_sessions` (the fresh solve's own, unrelated placement for it) --
-    without deduplicating, both copies survive the partition below and ship
-    to React as two elements with the same `key`, exactly the duplicate-key
-    warning that surfaced this. The old, already-shown time always wins for
-    an id that's past; the new solve's placement for that id is simply
-    dropped rather than shown a second time in the future.
-
-    Known simplification: past/future is still decided by time only, not
-    matched to course/preference selection -- if `old_sessions` came from a
-    different course selection than `new_sessions`, a past session from a
-    course no longer selected still carries over. Fine for a single-student
-    demo with no course-removal flow exercised yet; a real multi-selection
-    product would want to intersect on course_id too."""
-    # Also de-dupes WITHIN old_sessions by _id (first occurrence wins) --
-    # defensive against a plan_cache document saved before this function
-    # de-duplicated past/future itself; a stale duplicate already in Mongo
-    # should self-heal on the next solve, not get carried forward forever.
-    past, seen = [], set()
-    for s in old_sessions:
-        if datetime.fromisoformat(s["start"]) < now and s["_id"] not in seen:
-            past.append(s)
-            seen.add(s["_id"])
-    future = [
-        s for s in new_sessions
-        if datetime.fromisoformat(s["start"]) >= now and s["_id"] not in seen
-    ]
-    return past + future
+# --------------------------------------------------------------------------
+# Past preservation used to live here, as merge_preserving_past(): a
+# Python-side concatenation of "past" sessions from the last cached plan
+# with "future" sessions from a brand-new, entirely independent solve.
+# Retired -- it had a real, live bug: decompose.py assigns a session's `_id`
+# deterministically from `{task.id}__s{n}`, a pure function of the task, not
+# of any particular solve's placement, so the SAME id could come back at a
+# DIFFERENT time from two different solves. A same-id duplicate across the
+# merge was fixable by deduplicating (which this function briefly did), but
+# a DIFFERENT id from the old solve and a different id from the new solve
+# landing at overlapping times was not fixable this way at all -- CP-SAT's
+# AddNoOverlap only ever protects the intervals actually inside ONE model;
+# concatenating two separately-solved session lists afterward has no such
+# guarantee between them. Confirmed live: two real, different sessions
+# overlapping by 15-45 minutes right around the day this was tested.
+#
+# Fixed properly in scheduler.py instead: build_and_solve() now takes
+# `locked_sessions` and adds each one as a real, mandatory CP-SAT interval
+# in the SAME AddNoOverlap pool fixed course blocks already use -- so a
+# fresh solve's own placements are mathematically guaranteed never to
+# collide with a locked one, not just hoped not to. preference_pipeline.py's
+# apply_and_solve computes the locked set from the previous plan_cache
+# BEFORE solving (any flexible session whose `start` is already behind real
+# wall-clock "now") and passes it straight into build_and_solve; there's no
+# post-hoc merge step left to have this bug in.
+# --------------------------------------------------------------------------
