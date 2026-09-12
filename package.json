@@ -9,5 +9,13 @@
     "start": "node scripts/run-demo.mjs start",
     "test": "npm test --prefix buddy",
     "test:e2e": "npm run test:e2e --prefix buddy"
+  },
+  "dependencies": {
+    "next": "latest",
+    "react": "latest",
+    "react-dom": "latest"
+  },
+  "engines": {
+    "node": ">=20"
   }
 }
