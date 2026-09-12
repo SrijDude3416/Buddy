@@ -104,6 +104,28 @@ def load_data(path: Path = DEFAULT_DATA_PATH) -> ScheduleData:
     )
 
 
+def load_data_preferring_mongo(path: Path = DEFAULT_DATA_PATH) -> ScheduleData:
+    """Tries the real Atlas cluster first (mongo_loader.py, seeded by
+    seed_mongo.py from this same test-data.json), falls back to the static
+    file read above if Mongo isn't configured, unreachable, or not yet
+    seeded. Either way the choice is printed, never silent -- CLAUDE.md's
+    "worth surfacing, not hiding" principle: a demo quietly running on stale
+    static data when Mongo was actually intended is confusing, not a
+    convenience. This is api.py's entry point now; load_data() above stays
+    file-only and untouched for run_prototype.py, tests, and anything that
+    wants a Mongo-independent read."""
+    try:
+        import mongo_loader
+
+        data = mongo_loader.load_data()
+        print(f"[data_loader] Loaded {len(data.courses)} courses / {len(data.tasks)} tasks from MongoDB "
+              f"({mongo_loader.SEED_SOURCE!r}).")
+        return data
+    except Exception as exc:
+        print(f"[data_loader] Mongo unavailable ({exc}); falling back to {path}.")
+        return load_data(path)
+
+
 if __name__ == "__main__":
     data = load_data()
     print(f"{len(data.courses)} courses, {len(data.tasks)} tasks")

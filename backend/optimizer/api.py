@@ -55,10 +55,14 @@ app = FastAPI(
 )
 
 # --- fixed "test student" state -------------------------------------------
-# Loaded once at import time. A real deployment replaces this whole block
-# with a per-request Mongo read keyed by user_id; nothing below this point
-# needs to know the difference.
-DATA = data_loader.load_data()
+# Loaded once at import time. Prefers the real Atlas cluster (mongo_loader.py,
+# seeded from this same test-data.json by seed_mongo.py) and falls back to
+# the static file read only if Mongo isn't reachable -- see
+# data_loader.load_data_preferring_mongo()'s docstring. Nothing below this
+# point (scheduler.py, preferences.py, preference_pipeline.py) needs to know
+# which source DATA actually came from; a future per-request/per-user Mongo
+# read replaces only this one assignment.
+DATA = data_loader.load_data_preferring_mongo()
 WINDOW_DAYS = 14  # matches run_prototype.py's default and every tuning run in README.md
 STORE = PreferenceStore()
 _LAST_SOLVE: SolveResponse | None = None

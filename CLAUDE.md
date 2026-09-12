@@ -122,13 +122,17 @@ implementation (none of it is wired to a real backend yet):
   in-memory data; every place a real API call belongs is marked with a
   `// In production: ...` comment.
 - **`SCHEMA.md`** — MongoDB schema, v2, feature-aligned with the MVP.
-- **`backend/optimizer/`** — a real, running CP-SAT prototype against
-  `test-data/schedule_test_data.json`: the preference-compiler-registry pattern
-  (`preferences.py`, with a correctly bidirectional `reify_window`), placement
-  (`scheduler.py`), and an eval harness (`eval.py`) that turns a solve into concrete
-  numbers instead of an eyeballed calendar. See `backend/optimizer/README.md` for what
-  a preference-tuning pass actually found (a duration-rounding bug, an objective-scaling
-  bug, and a real modeling gap around fixed-time exams — still open, see below).
+- **`backend/optimizer/`** — a real, running CP-SAT prototype: the
+  preference-compiler-registry pattern (`preferences.py`, with a correctly
+  bidirectional `reify_window`), placement (`scheduler.py`), and an eval harness
+  (`eval.py`) that turns a solve into concrete numbers instead of an eyeballed
+  calendar. See `backend/optimizer/README.md` for what a preference-tuning pass
+  actually found (a duration-rounding bug, an objective-scaling bug, and a real
+  modeling gap around fixed-time exams — still open, see below). Course/task
+  data now prefers the real Atlas cluster (`mongo_loader.py`, seeded by
+  `seed_mongo.py` from `test-data/schedule_test_data.json`), falling back to
+  that same static file — loudly, via a startup log line, not silently — when
+  Mongo isn't reachable (`data_loader.load_data_preferring_mongo()`).
 
 ## Frontend
 
