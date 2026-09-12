@@ -43,6 +43,9 @@ from api_models import (
     SetDailyWorkloadLimitIn,
     ProtectTimeBlockIn,
     SetBreakHabitsIn,
+    SetTaskSpacingIn,
+    SetUrgencyEmphasisIn,
+    SetMinimumGapIn,
     RemovePreferenceIn,
     ToolCallResponse,
     SolveSummary,
@@ -67,16 +70,32 @@ WINDOW_DAYS = 14  # matches run_prototype.py's default and every tuning run in R
 STORE = PreferenceStore()
 _LAST_SOLVE: SolveResponse | None = None
 
-# PREFERENCE_API.md §6: shapes every schedule regardless of anything else,
-# never chat-toggleable. Identical to run_prototype.py's "tuned" profile's
-# always-on entries -- kept here, not imported from there, because
-# run_prototype.py is a standalone CLI script, not a library this service
-# should depend on for its own defaults.
-ALWAYS_ON_DEFAULTS: list[Preference] = [
-    Preference("min_gap_between_sessions", {"minutes": 15}, weight=0),  # hard
-    Preference("spread_multi_session_tasks", {}, weight=25),
-    Preference("urgency_priority", {}, weight=8),
-]
+# Formerly PREFERENCE_API.md §6's always-on, never-chat-toggleable system
+# defaults (min_gap_between_sessions, spread_multi_session_tasks,
+# urgency_priority). Migrated to ordinary, tool-editable STORE entries below
+# -- §6 (updated) and CLAUDE.md document why, and preferences_store.py's own
+# comment on WEIGHT_MAP explains why widening their weight range doesn't
+# reopen the urgency_priority scaling bug that comment also documents. Kept
+# as an (now empty) list, not deleted outright, as the place genuinely
+# non-tool-exposable system behavior would go if that's ever needed again --
+# both solve paths below still splice it in unconditionally.
+ALWAYS_ON_DEFAULTS: list[Preference] = []
+
+# Same tested values api.py's solves always applied before the migration
+# above, just as ordinary STORE entries now instead of a hardcoded constant
+# spliced into every solve -- so this file's own bare /tools/* endpoints
+# (PREFERENCE_API.md's reference implementation; test-data only, no live DB,
+# per this module's own docstring -- buddy/'s actual demo goes through
+# preference_pipeline.py's separate, Mongo-backed STORE instead, seeded the
+# same way by seed_mongo.py) keep behaving exactly as documented, while
+# these three are now genuinely just 3 more preferences someone could set,
+# remove, or replace like any other.
+for _default_type, _default_value, _default_weight in [
+    ("min_gap_between_sessions", {"minutes": 15}, 0),  # hard; weight unused
+    ("spread_multi_session_tasks", {}, WEIGHT_MAP["spread_multi_session_tasks"]["moderate"]),
+    ("urgency_priority", {}, WEIGHT_MAP["urgency_priority"]["moderate"]),
+]:
+    STORE.set(_default_type, _default_value, _default_weight, source="onboarding")
 
 
 # --------------------------------------------------------------------------
@@ -268,6 +287,27 @@ def set_break_habits(body: SetBreakHabitsIn, resolve: bool = True, store: Prefer
     weight = WEIGHT_MAP["max_continuous_work"][body.strength]
     action = store.set("max_continuous_work", value, weight, source="chat")
     return _tool_response("max_continuous_work", value, weight, action, resolve, store)
+
+
+@app.post("/tools/set_task_spacing", response_model=ToolCallResponse)
+def set_task_spacing(body: SetTaskSpacingIn, resolve: bool = True, store: PreferenceStore = Depends(get_preference_store)) -> ToolCallResponse:
+    weight = WEIGHT_MAP["spread_multi_session_tasks"][body.strength]
+    action = store.set("spread_multi_session_tasks", {}, weight, source="chat")
+    return _tool_response("spread_multi_session_tasks", {}, weight, action, resolve, store)
+
+
+@app.post("/tools/set_urgency_emphasis", response_model=ToolCallResponse)
+def set_urgency_emphasis(body: SetUrgencyEmphasisIn, resolve: bool = True, store: PreferenceStore = Depends(get_preference_store)) -> ToolCallResponse:
+    weight = WEIGHT_MAP["urgency_priority"][body.strength]
+    action = store.set("urgency_priority", {}, weight, source="chat")
+    return _tool_response("urgency_priority", {}, weight, action, resolve, store)
+
+
+@app.post("/tools/set_minimum_gap", response_model=ToolCallResponse)
+def set_minimum_gap(body: SetMinimumGapIn, resolve: bool = True, store: PreferenceStore = Depends(get_preference_store)) -> ToolCallResponse:
+    value = {"minutes": body.minutes}
+    action = store.set("min_gap_between_sessions", value, weight=0, source="chat")  # hard constraint; weight unused
+    return _tool_response("min_gap_between_sessions", value, None, action, resolve, store)
 
 
 @app.post("/tools/remove_preference", response_model=ToolCallResponse)

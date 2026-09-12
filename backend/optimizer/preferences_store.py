@@ -25,10 +25,26 @@ from preferences import Preference
 # entries for preferred_hours/daily_load_cap and both moderate+firm for
 # daily_load_cap; gentle/firm elsewhere are principled interpolations, not
 # independently verified -- see PREFERENCE_API.md §10 for which is which.
+#
+# spread_multi_session_tasks/urgency_priority: until now these were
+# api.py's ALWAYS_ON_DEFAULTS -- fixed weights (25, 8) applied to every
+# solve, never tool-exposed at all (PREFERENCE_API.md §6). Migrated to a
+# real tool surface, same tested value as `moderate`; gentle/firm are
+# interpolations, not independently verified, exactly like every other
+# untested tier in this table. This does NOT reopen the urgency_priority
+# weight-scaling bug CLAUDE.md documents (a term built from a session's own
+# `-start`/`-minute_of_day` instead of `-day` could exceed PRESENCE_WEIGHT)
+# -- that bug lived in preferences.py's compiler, already fixed to use
+# `-day` (range ~14) unconditionally; nothing about widening the range of
+# *weights* a caller can choose changes which variable the compiler scales
+# by. weight * 14 stays orders of magnitude under PRESENCE_WEIGHT
+# (10,000,000) at every tier below, same as it always has at weight=8.
 WEIGHT_MAP: dict[str, dict[str, float]] = {
     "preferred_hours": {"gentle": 10, "moderate": 20, "firm": 30},
     "daily_load_cap": {"gentle": 8, "moderate": 15, "firm": 25},
     "max_continuous_work": {"gentle": 500, "moderate": 1000, "firm": 2000},
+    "spread_multi_session_tasks": {"gentle": 15, "moderate": 25, "firm": 35},
+    "urgency_priority": {"gentle": 4, "moderate": 8, "firm": 16},
 }
 
 # Tool-facing preference_type (used in remove_preference and in
@@ -41,6 +57,9 @@ TOOL_TO_INTERNAL: dict[str, str] = {
     "daily_workload_limit": "daily_load_cap",
     "protected_time_block": "avoid_block",
     "break_habits": "max_continuous_work",
+    "task_spacing": "spread_multi_session_tasks",
+    "urgency_emphasis": "urgency_priority",
+    "minimum_session_gap": "min_gap_between_sessions",
 }
 INTERNAL_TO_TOOL: dict[str, str] = {v: k for k, v in TOOL_TO_INTERNAL.items()}
 
@@ -51,6 +70,9 @@ ScopeFn = Callable[[dict], tuple]
 SCOPE_FNS: dict[str, ScopeFn | None] = {
     "preferred_hours": None,
     "max_continuous_work": None,
+    "spread_multi_session_tasks": None,
+    "urgency_priority": None,
+    "min_gap_between_sessions": None,
     "daily_load_cap": lambda value: tuple(sorted(value.get("days", []))),  # () = every day
     "avoid_block": lambda value: (
         tuple(sorted(value["days"])),

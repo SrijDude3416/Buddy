@@ -160,6 +160,21 @@ implementation (none of it is wired to a real backend yet):
   a slot the user already saw happen; only sessions still in the future come
   from the new solve.
 
+  `min_gap_between_sessions`, `spread_multi_session_tasks`, and
+  `urgency_priority` are no longer `ALWAYS_ON_DEFAULTS` (an untouchable
+  constant spliced into every solve, never chat-toggleable) — they're
+  ordinary, tool-editable preferences now, seeded with the same tested
+  values by `seed_mongo.py`, exactly like the rest of the default set. Three
+  new tools cover them: `set_task_spacing`, `set_urgency_emphasis`,
+  `set_minimum_gap` (`tool_schemas.json`, `PREFERENCE_API.md` §5). This does
+  not reopen the `urgency_priority` weight-scaling bug documented below —
+  that bug lived in the compiler (`preferences.py`, already fixed to scale
+  by `-day` unconditionally), not in how wide a range a caller can pick a
+  weight from; `preferences_store.py`'s `WEIGHT_MAP` comment has the detail.
+  `ALWAYS_ON_DEFAULTS` stays defined as an (now empty) list in `api.py`, not
+  deleted — the place genuinely non-tool-exposable system behavior would go
+  if that's ever needed again.
+
 ## Frontend
 
 ### UI flow
@@ -326,8 +341,11 @@ actual, running code — no longer just a sketch):
   either a hard constraint or a list of bounded `(coefficient, BoolVar)` objective
   terms. This is the entire surface area where LLM-derived input enters the solver.
   **`PREFERENCE_API.md`** is the AI-facing spec for this boundary — every tool Gemini
-  can call, why `weight` is never exposed as a raw number (see its §2), and which
-  registry types are deliberately *not* tool-exposed (always-on defaults instead).
+  can call, and why `weight` is never exposed as a raw number (see its §2) — every
+  registry type is tool-exposed today; a genuinely non-tool-exposable one (always-on,
+  no `set_`/`remove_` path) is still a supported pattern (`api.py`'s `ALWAYS_ON_DEFAULTS`),
+  just currently unused after `min_gap_between_sessions`/`spread_multi_session_tasks`/
+  `urgency_priority` migrated onto the tool surface (see below).
 - **Reification direction matters and is easy to get quietly wrong.** A one-directional
   boolean implication is safe for a reward term but silently broken for a penalty term
   (the solver can dodge the penalty for free). `reify_window` fully reifies both

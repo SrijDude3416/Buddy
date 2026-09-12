@@ -108,26 +108,26 @@ def seed(wipe: bool = False) -> None:
 
 
 def seed_default_preferences(db=None) -> None:
-    """The initial calendar's one default preference (preferred_hours,
-    08:00-17:00, moderate) used to be a hardcoded PreferenceCall inside
-    preference_pipeline.py's initial_plan() -- materialized into a real
-    Mongo document only lazily, as a side effect of the very first solve.
-    Now it's real seed data from the start, exactly like courses/tasks:
+    """The initial calendar's default preferences used to be hardcoded
+    Python: `preferred_hours` (08:00-17:00, moderate) as a PreferenceCall
+    inside preference_pipeline.py's initial_plan(), and separately
+    min_gap_between_sessions/spread_multi_session_tasks/urgency_priority as
+    api.py's ALWAYS_ON_DEFAULTS -- an untouchable constant spliced into
+    every solve, not tool-exposed at all (the original PREFERENCE_API.md
+    §6). All four are real seed data now, exactly like courses/tasks:
     inspectable in the `preferences` collection before the app is ever
-    opened once, and an entirely ordinary document -- nothing about it is
-    special or protected. OpenAI's existing tools already treat it as such
-    once it exists (set_preferred_work_hours replaces it -- it's a
-    singleton per preferences_store.SCOPE_FNS; remove_preference deletes it
-    outright) -- this change is about where that first document originates,
-    not new capability.
+    opened once, and entirely ordinary documents -- nothing about any of
+    them is special or protected anymore. OpenAI's tools treat them as such
+    once they exist (set_preferred_work_hours/set_task_spacing/
+    set_urgency_emphasis/set_minimum_gap replace them -- all four are
+    singletons per preferences_store.SCOPE_FNS; remove_preference deletes
+    any of them outright).
 
-    Deliberately does NOT seed ALWAYS_ON_DEFAULTS (api.py: min_gap_between_
-    sessions, spread_multi_session_tasks, urgency_priority) -- those are
-    genuinely different: system-level scheduling behavior PREFERENCE_API.md
-    §6 explicitly keeps OFF the tool surface (no TOOL_TO_INTERNAL entry, no
-    set_/remove_ path reaches them). Seeding them as ordinary `preferences`
-    documents would make them removable/editable by chat, which is exactly
-    the boundary §6 draws on purpose.
+    Same tested weights as before the migration (see preferences_store.py's
+    WEIGHT_MAP comment for why widening these two's range to gentle/firm
+    doesn't reopen the urgency_priority scaling bug CLAUDE.md documents --
+    that bug lived in the compiler, already fixed, independent of what
+    weight flows in).
 
     Only inserts if this user has NO preferences at all yet -- unlike
     courses/tasks (not user-editable, safe to overwrite on every run),
@@ -139,17 +139,20 @@ def seed_default_preferences(db=None) -> None:
     if db.preferences.count_documents({"user_id": DEMO_USER_ID}) > 0:
         print(f"Preferences already exist for user_id={DEMO_USER_ID!r}; leaving them as-is.")
         return
-    db.preferences.insert_one(
-        {
-            "user_id": DEMO_USER_ID,
-            "type": "preferred_hours",
-            "value": {"start": "08:00", "end": "17:00"},
-            "weight": WEIGHT_MAP["preferred_hours"]["moderate"],
-            "source": "onboarding",
-            "source_message_id": None,
-        }
+    defaults = [
+        {"type": "preferred_hours", "value": {"start": "08:00", "end": "17:00"},
+         "weight": WEIGHT_MAP["preferred_hours"]["moderate"]},
+        {"type": "min_gap_between_sessions", "value": {"minutes": 15}, "weight": 0},  # hard; weight unused
+        {"type": "spread_multi_session_tasks", "value": {},
+         "weight": WEIGHT_MAP["spread_multi_session_tasks"]["moderate"]},
+        {"type": "urgency_priority", "value": {},
+         "weight": WEIGHT_MAP["urgency_priority"]["moderate"]},
+    ]
+    db.preferences.insert_many(
+        [{"user_id": DEMO_USER_ID, "source": "onboarding", "source_message_id": None, **d} for d in defaults]
     )
-    print(f"Seeded default preferred_hours (08:00-17:00, moderate) for user_id={DEMO_USER_ID!r}")
+    print(f"Seeded {len(defaults)} default preferences for user_id={DEMO_USER_ID!r}: "
+          + ", ".join(d["type"] for d in defaults))
 
 
 if __name__ == "__main__":

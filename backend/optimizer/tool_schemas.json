@@ -105,6 +105,55 @@
       }
     },
     {
+      "name": "set_task_spacing",
+      "description": "Control how strongly the solver avoids putting multiple sessions of the SAME assignment on the same day. Call this when the student talks about wanting to spread a big assignment out instead of cramming all its sessions together, or the opposite -- wanting to knock a task out in one day, e.g. 'spread my project work out more', 'don't put three problem-set sessions on the same day', 'I'd rather just power through an assignment in one sitting once I start'. There is always exactly one active setting for this -- calling it again replaces the previous one, it does not stack.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "strength": {
+            "type": "string",
+            "enum": ["gentle", "moderate", "firm"],
+            "description": "How strongly to penalize same-day, same-task sessions. 'moderate' is the tested default (this schedule's setting before it was ever chat-adjustable) and correct unless the student is explicit about how important this is.",
+            "default": "moderate"
+          }
+        },
+        "required": []
+      }
+    },
+    {
+      "name": "set_urgency_emphasis",
+      "description": "Control how strongly the solver favors placing soon-due work earlier rather than later in the window. Call this when the student talks about wanting urgent deadlines handled sooner, or the opposite -- not wanting the schedule to always front-load whatever is due next, e.g. 'get urgent stuff done as early as possible', 'stop always rushing me toward the next deadline', 'I don't mind cutting it closer sometimes'. There is always exactly one active setting -- calling it again replaces the previous one.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "strength": {
+            "type": "string",
+            "enum": ["gentle", "moderate", "firm"],
+            "description": "How strongly to reward earlier placement of urgent work. 'moderate' is the tested default (this schedule's setting before it was ever chat-adjustable) and correct unless the student is explicit about how important this is.",
+            "default": "moderate"
+          }
+        },
+        "required": []
+      }
+    },
+    {
+      "name": "set_minimum_gap",
+      "description": "Set the minimum real-world gap required between any two flexible study sessions -- a HARD rule, not a soft preference; the solver will never schedule two sessions closer together than this. Call this when the student explicitly asks for more (or less) buffer between back-to-back study blocks, e.g. 'give me at least half an hour between study sessions', 'I don't need much of a gap, 5 minutes is fine'. This is a DIFFERENT setting from set_break_habits (which is about how long a single unbroken work STRETCH can run before it counts as needing a break) -- this one is about the gap between two already-separate sessions.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "minutes": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 60,
+            "default": 15,
+            "description": "Minimum minutes required between the end of one flexible session and the start of the next. 15 is the tested default (this schedule's setting before it was ever chat-adjustable)."
+          }
+        },
+        "required": ["minutes"]
+      }
+    },
+    {
       "name": "remove_preference",
       "description": "Retract a previously set preference. Call this when the student says something like 'never mind that', 'actually forget the Sunday thing', 'I changed my mind about evenings', or any other request to undo or cancel a specific earlier preference. Always confirm which preference in plain language before or after calling this if there's any doubt which one they mean.",
       "parameters": {
@@ -112,7 +161,7 @@
         "properties": {
           "preference_type": {
             "type": "string",
-            "enum": ["preferred_work_hours", "daily_workload_limit", "protected_time_block", "break_habits"],
+            "enum": ["preferred_work_hours", "daily_workload_limit", "protected_time_block", "break_habits", "task_spacing", "urgency_emphasis", "minimum_session_gap"],
             "description": "Which kind of preference to remove."
           },
           "match": {

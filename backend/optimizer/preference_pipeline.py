@@ -21,7 +21,8 @@ from preferences_store import PreferenceStore, WEIGHT_MAP
 from plan_payload import to_plan_payload
 
 ToolName = Literal["set_preferred_work_hours", "set_daily_workload_limit", "protect_time_block",
-                   "set_break_habits", "remove_preference", "list_current_preferences"]
+                   "set_break_habits", "set_task_spacing", "set_urgency_emphasis", "set_minimum_gap",
+                   "remove_preference", "list_current_preferences"]
 
 
 class PreferenceCall(BaseModel):
@@ -50,8 +51,22 @@ def canonical_preferences(store):
                 args["days"] = value["days"]
         elif entry.internal_type == "avoid_block":
             name, args = "protect_time_block", {"days": value["days"], "start_time": value["start"], "end_time": value["end"]}
-        else:
+        elif entry.internal_type == "max_continuous_work":
             name, args = "set_break_habits", {"break_minutes": value["break_minutes"], "strength": tier}
+        elif entry.internal_type == "spread_multi_session_tasks":
+            name, args = "set_task_spacing", {"strength": tier}
+        elif entry.internal_type == "urgency_priority":
+            name, args = "set_urgency_emphasis", {"strength": tier}
+        elif entry.internal_type == "min_gap_between_sessions":
+            name, args = "set_minimum_gap", {"minutes": value["minutes"]}
+        else:
+            # A genuinely unrecognized internal_type is a bug upstream (a
+            # new preferences.py compiler registered without a matching tool
+            # here) -- skip it rather than crash the whole response over one
+            # bad entry; CLAUDE.md's "worth surfacing, not hiding" still
+            # applies, so print rather than pretend it didn't happen.
+            print(f"[preference_pipeline] No tool mapping for internal_type={entry.internal_type!r}; omitting from canonical_preferences.")
+            continue
         calls.append({"name": name, "arguments": args})
     return calls
 
@@ -84,6 +99,9 @@ def register_pipeline(app):
         "set_daily_workload_limit": (models.SetDailyWorkloadLimitIn, api.set_daily_workload_limit),
         "protect_time_block": (models.ProtectTimeBlockIn, api.protect_time_block),
         "set_break_habits": (models.SetBreakHabitsIn, api.set_break_habits),
+        "set_task_spacing": (models.SetTaskSpacingIn, api.set_task_spacing),
+        "set_urgency_emphasis": (models.SetUrgencyEmphasisIn, api.set_urgency_emphasis),
+        "set_minimum_gap": (models.SetMinimumGapIn, api.set_minimum_gap),
         "remove_preference": (models.RemovePreferenceIn, api.remove_preference),
     }
 

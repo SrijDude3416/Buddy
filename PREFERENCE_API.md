@@ -68,11 +68,14 @@ def build_and_solve(
 ```
 
 `api.py` calls this directly — for `POST /solve` it's a straight pass-through of the
-request body; for the six tools and `GET /plan` it's called with the one test
-student's current `PreferenceStore` contents plus `ALWAYS_ON_DEFAULTS` (§6). There's
-still no connection to a real database anywhere — `api.py` loads
-`test-data/schedule_test_data.json` once at startup via the same `data_loader.py`
-every other script in this project uses, and that's the entire "student" it knows
+request body; for the tools and `GET /plan` it's called with the one test
+student's current `PreferenceStore` contents plus `ALWAYS_ON_DEFAULTS` (§6, now empty
+-- see there for why). `api.py`'s course/task data now prefers the real Atlas cluster
+(`data_loader.load_data_preferring_mongo()`), falling back to
+`test-data/schedule_test_data.json` only if Mongo isn't reachable -- but `api.py`'s
+own bare `PreferenceStore` (as opposed to `preference_pipeline.py`'s separate,
+Mongo-backed one buddy/'s live demo actually uses) is still purely in-memory, and
+that's still the entire "student" it knows
 about.
 
 ### 🟢 The design decision this implies: who's allowed to trigger a solve
@@ -215,7 +218,7 @@ service has no opinion on. Whatever calls `/solve` needs to translate `placed`/
 `unplaced` entries into real `sessions` documents; that translation isn't specified
 here because it isn't this service's job.
 
-### 🟢 The six tools, `GET /plan`, and how they connect — all implemented
+### 🟢 The tools, `GET /plan`, and how they connect — all implemented
 
 Every tool in §5 is a real endpoint, `POST /tools/<tool_name>` (e.g. `POST
 /tools/set_daily_workload_limit`), body shaped exactly like `tool_schemas.json`'s
@@ -231,11 +234,13 @@ design decision above, made real — automatically re-solves and caches the resu
 against an empty preference set if nothing has run yet rather than erroring — a fresh
 student with nothing set still has a real, plain schedule to show.
 
-**One interpretation this implementation had to make, not spelled out in the original
-spec:** §6's always-on defaults (spread/urgency/min-gap) apply to `POST /solve` too,
-not just tool-triggered solves — read as "shapes every schedule, full stop." If that's
-wrong, it's a one-line change in `api.py`'s `ALWAYS_ON_DEFAULTS` usage, not a design
-problem, but it was a real judgment call worth someone confirming.
+**Historical note, no longer live:** this implementation used to unconditionally
+splice §6's then-always-on defaults (spread/urgency/min-gap) into `POST /solve` too,
+not just tool-triggered solves — an interpretation of the original spec, confirmed as
+intended at the time. Moot now that those three migrated onto the real tool surface
+(§5, §6) — `POST /solve` takes exactly the `preferences` array its caller sends, same
+as always; there's no longer a hidden always-on set to worry about applying
+consistently.
 
 Two endpoints exist only for manual testing and aren't part of this spec:
 `POST /reset` (clears all state) and `GET /health`.
@@ -307,7 +312,7 @@ their schedule.
 
 Every tool in this section is implemented and tested against real data. §9 covers
 what's designed but not wired up yet — don't call those; they exist in the catalog
-below intentionally and only these six do.
+below intentionally and only these nine do.
 
 ### `set_preferred_work_hours`
 **Singleton.** Sets the one daily window flexible work is rewarded for landing in.
@@ -392,12 +397,63 @@ stuff less optimal"*
 → `set_break_habits(break_minutes=45, strength="firm")` — the "I don't care" is what
 licenses `firm` here; without it, default to `moderate`.
 
+### `set_task_spacing`
+**Singleton.** Controls how strongly the solver avoids putting multiple sessions of
+the *same* assignment on the same day (spreading a large task's chunks out instead of
+clustering them). Until recently this was permanently on, unadjustable, and not a tool
+at all — see §6 for why, and why it's safe now.
+
+Call it when the student talks about wanting an assignment's sessions spread out more,
+or the opposite — wanting to power through a task in one sitting once started:
+*"spread my project work out more,"* *"don't put three problem-set sessions on the same
+day,"* *"I'd rather just knock a task out in one go."*
+
+| Parameter | Type | Required | Notes |
+|---|---|---|---|
+| `strength` | `gentle`\|`moderate`\|`firm` | no, default `moderate` | `moderate` is the tested default — this schedule's setting before it was ever adjustable |
+
+**Example** — *"Please don't cram every session of my project onto one day"*
+→ `set_task_spacing(strength="firm")`
+
+### `set_urgency_emphasis`
+**Singleton.** Controls how strongly soon-due work gets pulled earlier in the window
+relative to work due later. Same history as `set_task_spacing` — see §6.
+
+Call it when the student wants urgent deadlines handled sooner, or is pushing back on
+the schedule always front-loading whatever's due next: *"get urgent stuff done as
+early as possible,"* *"stop always rushing me toward the next deadline."*
+
+| Parameter | Type | Required | Notes |
+|---|---|---|---|
+| `strength` | `gentle`\|`moderate`\|`firm` | no, default `moderate` | `moderate` is the tested default — this schedule's setting before it was ever adjustable |
+
+**Example** — *"Whatever's due soonest, just get it done as early as you can"*
+→ `set_urgency_emphasis(strength="firm")`
+
+### `set_minimum_gap`
+**Singleton. Hard** — the solver will never place two flexible sessions closer
+together than this; no `strength` parameter, same reasoning as `protect_time_block`.
+
+Call it when the student explicitly wants more or less real-world buffer between
+back-to-back study blocks: *"give me at least half an hour between study sessions,"*
+*"5 minutes is plenty, I don't need much of a gap."* **Different setting from
+`set_break_habits`** — that one is about how long a single unbroken work *stretch* can
+run before it needs a break; this one is the gap between two already-separate
+sessions.
+
+| Parameter | Type | Required | Notes |
+|---|---|---|---|
+| `minutes` | integer, 0-60 | no, default 15 | 15 is the tested default — this schedule's setting before it was ever adjustable |
+
+**Example** — *"Give me at least 30 minutes between study sessions"*
+→ `set_minimum_gap(minutes=30)`
+
 ### `remove_preference`
 Deletes one active preference. See §4 for the persistence model this depends on.
 
 | Parameter | Type | Required | Notes |
 |---|---|---|---|
-| `preference_type` | one of `preferred_work_hours`, `daily_workload_limit`, `protected_time_block`, `break_habits` | yes | |
+| `preference_type` | one of `preferred_work_hours`, `daily_workload_limit`, `protected_time_block`, `break_habits`, `task_spacing`, `urgency_emphasis`, `minimum_session_gap` | yes | |
 | `match` | object | only if >1 entry of that type is active | repeat enough of the original parameters to identify which one, e.g. `{"days": ["Fri","Sat"]}` |
 
 **Example** — *"Actually never mind the Sunday thing, I'll manage"*, with both a
@@ -410,25 +466,26 @@ No parameters. Returns every active preference. Call before an ambiguous
 
 ## 6. What's always on, and why you don't control it
 
-Four things shape every schedule regardless of anything above, and are deliberately
-**not** exposed as tools:
+This used to list four things: spreading a big task's sessions out, urgency-aware
+prioritization, a minimum buffer between sessions, and review-session generation —
+all permanently on, none of them tools. The first three moved onto the real tool
+surface (`set_task_spacing`, `set_urgency_emphasis`, `set_minimum_gap` — §5): they
+were never *fundamentally* different from `set_preferred_work_hours` or
+`set_break_habits`, they just hadn't been given a tool yet. Each still ships with the
+exact same tested default it always ran at (`seed_mongo.py`'s
+`seed_default_preferences()`), so a student who never mentions any of them gets
+identical behavior to before — the only change is that now they *can* ask to adjust
+one, and you have a real way to say yes.
 
-- **Spreading out a big task's sessions** — doing all 8 chunks of a large assignment
-  back-to-back on one day defeats the point of having split it up. Always on.
-- **Urgency-aware prioritization** — a task's sessions get pulled earlier in
-  proportion to real urgency (remaining work per hour until it's due), so a huge
-  assignment due soon doesn't sit at parity with a small one due in two weeks. This is
-  core scheduling behavior, not a personal style choice — it stays on.
-- **A minimum buffer between any two sessions** (15 minutes, hard) — pure scheduling
-  hygiene, not something anyone would want set to zero.
+One thing is still genuinely, permanently not a tool:
+
 - **A short "review your notes" session generated after every lecture** — not tied to
   any assignment, just a standing study habit. (A way to turn this off per-student is
   designed but not built yet — see §9.)
 
-If a student's request genuinely conflicts with one of these (e.g. "never prioritize
-by urgency, just do things in the order I feel like"), say plainly that the system
-doesn't support turning that off yet rather than trying to approximate it by misusing
-one of the tools above.
+If a student's request conflicts with that (e.g. *"stop adding those review
+sessions"*), say plainly that the system doesn't support turning it off yet rather
+than trying to approximate it by misusing one of the tools in §5.
 
 ## 7. Validation and error handling
 
@@ -504,12 +561,17 @@ catalog above. Noted here so whoever wires this next knows exactly what's missin
 | `set_daily_workload_limit` | `daily_load_cap` | `_compile_daily_load_cap` | gentle=8, moderate=15\*, firm=25\* |
 | `protect_time_block` | `avoid_block` | `_compile_avoid_block` | hard, no weight |
 | `set_break_habits` | `max_continuous_work` | `_compile_max_continuous_work` | gentle=500, moderate=1000\*, firm=2000 |
+| `set_task_spacing` | `spread_multi_session_tasks` | `_compile_spread_multi_session` | gentle=15, moderate=25\*, firm=35 |
+| `set_urgency_emphasis` | `urgency_priority` | `_compile_urgency_priority` | gentle=4, moderate=8\*, firm=16 |
+| `set_minimum_gap` | `min_gap_between_sessions` | `_compile_min_gap` | hard, no weight (`minutes`, tested default 15) |
 
 \* = the exact value empirically tested this session (see `backend/optimizer/README.md`,
 "Round 4" for `max_continuous_work`'s tuning history in particular — the others are
 principled interpolations around one tested point, not independently verified across
-the full range). All four compilers live in `backend/optimizer/preferences.py`; the
-registry that dispatches on `type` is `REGISTRY` at the bottom of that file.
+the full range; `set_task_spacing`/`set_urgency_emphasis`'s `moderate` are the values
+these two ran at unconditionally, for every solve, before they were tools at all — see
+§6). All seven compilers live in `backend/optimizer/preferences.py`; the registry that
+dispatches on `type` is `REGISTRY` at the bottom of that file.
 
 Weights above were tuned against a 14-day rolling window
 (`backend/optimizer/run_prototype.py`'s default), not the 7-day horizon the frontend
@@ -524,7 +586,7 @@ but that's an expectation, not something re-verified at 7 days yet.
 own small API surface (find/delete by type+scope, list by student) lives in
 `preferences_store.py`'s `PreferenceStore`, not `compile_all()`.
 
-`POST /solve`, all six tools under `/tools/`, and `GET /plan` are implemented in
+`POST /solve`, all nine tools under `/tools/`, and `GET /plan` are implemented in
 `backend/optimizer/api.py` (models in `api_models.py`, persistence in
 `preferences_store.py`) and verified end-to-end against real requests — including the
 error paths (`409` ambiguous removal, `404` nothing to remove, `422` validation). Still

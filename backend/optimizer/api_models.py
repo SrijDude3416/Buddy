@@ -165,9 +165,27 @@ class SetBreakHabitsIn(ToolInput):
     strength: Strength = "moderate"
 
 
+class SetTaskSpacingIn(ToolInput):
+    strength: Strength = "moderate"
+
+
+class SetUrgencyEmphasisIn(ToolInput):
+    strength: Strength = "moderate"
+
+
+class SetMinimumGapIn(ToolInput):
+    # 15 is the only value ever tuned/tested (CLAUDE.md, api.py's former
+    # ALWAYS_ON_DEFAULTS). Bounded well below anything that could make ~150
+    # sessions over a 14-day window infeasible on its own -- this is a HARD
+    # constraint (preferences.py's _compile_min_gap), not a soft one a tight
+    # week can just trade off against.
+    minutes: int = Field(default=15, ge=0, le=60)
+
+
 class RemovePreferenceIn(ToolInput):
     preference_type: Literal[
-        "preferred_work_hours", "daily_workload_limit", "protected_time_block", "break_habits"
+        "preferred_work_hours", "daily_workload_limit", "protected_time_block", "break_habits",
+        "task_spacing", "urgency_emphasis", "minimum_session_gap",
     ]
     match: dict | None = None
 
