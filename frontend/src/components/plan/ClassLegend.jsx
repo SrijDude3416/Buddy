@@ -18,7 +18,7 @@
 
 import { Lock } from 'lucide-react';
 import { colorFor } from '../../lib/courseColors.js';
-import { hasEnded } from '../../lib/time.js';
+import { hasEnded, formatDuration } from '../../lib/time.js';
 
 export function ClassLegend({ plan, weekOffsets, now }) {
   if (!plan.goals.length) {
@@ -65,7 +65,9 @@ export function ClassLegend({ plan, weekOffsets, now }) {
                   <div className={`h-full rounded-full transition-all ${color.rail}`} style={{ width: `${throughWeek}%` }} />
                 </div>
                 <p className="text-[11px] text-stone-400 dark:text-stone-500">
-                  {totalMin ? `${elapsedMin} of ${totalMin} min this week` : 'Nothing scheduled this week'}
+                  {totalMin
+                    ? `${formatDuration(elapsedMin)} of ${formatDuration(totalMin)} this week`
+                    : 'Nothing scheduled this week'}
                 </p>
               </div>
             </div>

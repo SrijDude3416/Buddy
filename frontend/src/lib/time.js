@@ -95,3 +95,15 @@ export function addMinutesIso(iso, minutes) {
 export function hasEnded(iso, now = new Date()) {
   return !!iso && new Date(iso).getTime() <= now.getTime();
 }
+
+/** "135" -> "2hr 15min" — a raw minute count read out as hours+minutes, the
+ * way a person actually thinks about a chunk of their week, not as a bare
+ * number of minutes. Drops the half that's zero rather than printing
+ * "2hr 0min" or "0hr 15min". */
+export function formatDuration(totalMin) {
+  const h = Math.floor(totalMin / 60);
+  const m = totalMin % 60;
+  if (h === 0) return `${m}min`;
+  if (m === 0) return `${h}hr`;
+  return `${h}hr ${m}min`;
+}
