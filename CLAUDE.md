@@ -257,6 +257,24 @@ actual, running code — no longer just a sketch):
 - **`objective_value` / `best_bound` / `gap` is a real, honest "% optimized" stat** —
   CP-SAT reports a provable upper bound even when it can't prove optimality within the
   time limit, so `gap` is a legitimate claim to show the user, not a fudged number.
+- **An earliest-start bound must round its slot index UP, never down** — the mirror
+  image of durations rounding up rather than to nearest. A lecture ending at 20:20
+  floors to the 20:15 slot; using that as a "review session can't start before this"
+  bound let the review start 5 real minutes before the lecture it was reviewing had
+  even ended. Flooring is the safe direction for a *deadline* (never allows running
+  late); it is not safe for a *not-before* bound (it allows starting early).
+- **A cross-session cumulative constraint (e.g. "no more than 2 hours of work without
+  a real break") is O(sessions²) by nature** — every session's running "streak" has to
+  check every other session as a candidate predecessor. This scales badly fast; the
+  first version of this (see `backend/optimizer/README.md`) couldn't find a feasible
+  solution at all at ~100 sessions until preference-linearization and a targeted
+  exclusion (light review sessions don't count as "grinding work") brought it back
+  under control. Budget for this cost explicitly before adding another one.
+- **When `presence` is false, the output block's `kind` must be explicitly relabeled**
+  to `"unplaced"` — it doesn't happen automatically, and every report/eval filter keys
+  on `kind`. Get this wrong and a genuinely-lost session just disappears from every
+  view instead of surfacing as "competed and lost," silently violating the "worth
+  surfacing, not hiding" principle above.
 
 **Open decision, not yet made**: preferences currently blend into one weighted sum,
 so a strong `avoid_block` penalty and a weak `preferred_hours` reward can trade off in

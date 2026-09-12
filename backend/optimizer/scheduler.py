@@ -22,13 +22,14 @@ Core mechanics, matching CLAUDE.md's "Scheduling engine (CP-SAT)" section:
 """
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from datetime import datetime, timedelta, time
 
 from ortools.sat.python import cp_model
 
 from data_loader import ScheduleData, WEEKDAY_ABBR, MeetingTime
-from decompose import Session, decompose_all, SLOT_MINUTES
+from decompose import Session, decompose_all, generate_review_sessions, SLOT_MINUTES
 from preferences import Preference, SessionCtx, compile_all
 
 DAY_START = time(8, 0)   # earliest an hour is ever "available" for anything
@@ -78,6 +79,14 @@ def build_and_solve(
 
     def slot_of(dt: datetime) -> int:
         return int((dt - window_start).total_seconds() // (SLOT_MINUTES * 60))
+
+    def slot_of_ceil(dt: datetime) -> int:
+        # For an EARLIEST-start bound, flooring is unsafe: a lecture ending
+        # at 20:20 floors to the 20:15 slot, letting a "not before" session
+        # start 5 real minutes before the lecture is actually over. Ceiling
+        # is the conservative direction here, the mirror of why durations
+        # round up elsewhere (decompose.py) rather than to nearest.
+        return math.ceil((dt - window_start).total_seconds() / (SLOT_MINUTES * 60))
 
     model = cp_model.CpModel()
     all_intervals: list[cp_model.IntervalVar] = []
@@ -157,7 +166,9 @@ def build_and_solve(
     # --- Flexible sessions, decomposed from not-done tasks. Optional so an
     # individual session can come back "unplaced" instead of the whole solve
     # failing.
-    sessions = decompose_all(data.tasks)
+    sessions = decompose_all(data.tasks, data.courses) + generate_review_sessions(
+        data.courses, window_start, window_days
+    )
     session_vars: dict[str, tuple[cp_model.IntervalVar, cp_model.IntVar, Session]] = {}
     session_ctxs: list[SessionCtx] = []
     out_of_window: list[Session] = []
@@ -167,6 +178,12 @@ def build_and_solve(
         duration_slots = sess.duration_min // SLOT_MINUTES
         deadline_slot = slot_of(sess.due_at)
         latest_start = deadline_slot - duration_slots
+        # A review session's `not_before` (its own lecture's end time) is an
+        # earliest-start bound, not just a deadline -- without this, nothing
+        # stops it from being scheduled hours *before* the lecture it's
+        # meant to review even happens, which technically satisfies "due
+        # shortly after class" while completely missing the point.
+        earliest_start = max(now_slot, slot_of_ceil(sess.not_before)) if sess.not_before else now_slot
 
         if sess.due_at > window_end:
             # Out of this window's scope entirely -- CLAUDE.md's "hours
@@ -175,15 +192,15 @@ def build_and_solve(
             out_of_window.append(sess)
             continue
 
-        if latest_start < now_slot:
-            # In scope, but the deadline can't be met even starting right
-            # now -- a genuine "this can't be scheduled in time" case,
-            # distinct from "wasn't attempted."
+        if latest_start < earliest_start:
+            # In scope, but the deadline can't be met even starting at the
+            # earliest allowed moment -- a genuine "this can't be scheduled
+            # in time" case, distinct from "wasn't attempted."
             infeasible_deadline.append(sess)
             continue
 
         presence = model.NewBoolVar(f"present_{sess.id}")
-        start = model.NewIntVar(now_slot, latest_start, f"start_{sess.id}")
+        start = model.NewIntVar(earliest_start, latest_start, f"start_{sess.id}")
         end = model.NewIntVar(now_slot, total_slots, f"end_{sess.id}")
         interval = model.NewOptionalIntervalVar(start, duration_slots, end, presence, f"iv_{sess.id}")
         all_intervals.append(interval)
@@ -279,6 +296,11 @@ def build_and_solve(
                 block.end = block.start + timedelta(minutes=sess.duration_min)
                 placed.append(block)
             else:
+                # kind was "flexible" from construction above -- has to be
+                # relabeled or every report/eval filter keyed on kind=="unplaced"
+                # (run_prototype.py, eval.py) silently finds nothing here and
+                # this session just vanishes from view instead of surfacing.
+                block.kind = "unplaced"
                 unplaced.append(block)
         obj = solver.ObjectiveValue()
         bound = solver.BestObjectiveBound()

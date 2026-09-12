@@ -8,6 +8,7 @@ while we're still figuring out the model shape.
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -16,6 +17,18 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_DATA_PATH = REPO_ROOT / "test-data" / "schedule_test_data.json"
 
 WEEKDAY_ABBR = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+
+_COURSE_CODE_RE = re.compile(r"^(\d{2})(\d+)")
+
+
+def format_course_code(course_name: str) -> str:
+    """"15151 Math Foundations" -> "15-151" -- Carlos's own real calendar
+    always leads a task/block title with the course code, and asked for it
+    here too ("it's good to put the class number so that it's more
+    readable"). Returns "" if the name doesn't start with a course number,
+    rather than guessing."""
+    m = _COURSE_CODE_RE.match(course_name)
+    return f"{m.group(1)}-{m.group(2)}" if m else ""
 
 
 @dataclass

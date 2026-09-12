@@ -12,12 +12,16 @@ from __future__ import annotations
 import math
 import re
 from dataclasses import dataclass
+from datetime import datetime, timedelta, time as dtime
 
-from data_loader import Task
+from data_loader import Task, Course, WEEKDAY_ABBR, format_course_code
 
 SLOT_MINUTES = 15
-MAX_SESSION_MIN = 90   # don't ask for one continuous sitting longer than this
+MAX_SESSION_MIN = 60   # never work on the same subject for more than an hour (Carlos's own rule)
 MIN_SESSION_MIN = 30   # don't produce slivers shorter than this
+
+REVIEW_DURATION_MIN = 30  # a quick post-lecture notes review, not a full study session
+REVIEW_WINDOW_MIN = 45    # must start within this long after class or don't bother -- it's stale otherwise
 
 
 @dataclass
@@ -28,6 +32,7 @@ class Session:
     title: str
     duration_min: int
     due_at: object  # datetime, kept loose to avoid circular import noise
+    not_before: object = None  # datetime | None -- earliest allowed start; None means "window start"
 
 
 def humanize_title(raw_title: str) -> str:
@@ -59,16 +64,21 @@ def _round_to_slot(minutes: float) -> int:
     return max(SLOT_MINUTES, math.ceil(minutes / SLOT_MINUTES) * SLOT_MINUTES)
 
 
-def decompose_task(task: Task) -> list[Session]:
+def decompose_task(task: Task, course_code: str = "") -> list[Session]:
     """One task -> one or more Sessions, each a multiple of SLOT_MINUTES.
 
     Every session of the same task shares one title, with no "(part i/N)"
     suffix -- position on the calendar already communicates it's ongoing
     multi-part work, and a real calendar (see backend/optimizer/README.md)
-    just repeats the bare title across sessions.
+    just repeats the bare title across sessions. `course_code` (e.g.
+    "15-151"), when given, is prefixed on -- Carlos's own calendar always
+    leads with the class number, and asked for it here for the same reason:
+    it's more readable at a glance than the activity alone.
     """
     duration = task.est_duration_min
     title = humanize_title(task.title)
+    if course_code:
+        title = f"{course_code} {title}"
 
     if not task.splittable or duration <= MAX_SESSION_MIN:
         return [
@@ -113,12 +123,50 @@ def decompose_task(task: Task) -> list[Session]:
     return sessions
 
 
-def decompose_all(tasks: list[Task]) -> list[Session]:
+def decompose_all(tasks: list[Task], courses: dict[str, Course] = None) -> list[Session]:
+    courses = courses or {}
     sessions: list[Session] = []
     for t in tasks:
         if t.is_done:
             continue
-        sessions.extend(decompose_task(t))
+        course = courses.get(t.course_id)
+        code = format_course_code(course.name) if course else ""
+        sessions.extend(decompose_task(t, code))
+    return sessions
+
+
+def generate_review_sessions(courses: dict[str, Course], window_start: datetime, window_days: int) -> list[Session]:
+    """One short "review notes" session per lecture occurrence in the
+    window -- not from any real task, just Carlos's own stated habit
+    ("right after lectures it's good to have some time blocked out to
+    revise your notes"). Its due_at is deliberately tight (must start within
+    REVIEW_WINDOW_MIN of the lecture ending) rather than "sometime today" --
+    a review that slips to that evening isn't the thing being asked for, so
+    it should come back unplaced instead of landing somewhere misleading.
+    Reuses the same optional-session machinery as real tasks: if it truly
+    can't fit, it's dropped, not forced.
+    """
+    sessions: list[Session] = []
+    for day in range(window_days):
+        date = (window_start + timedelta(days=day)).date()
+        weekday_abbr = WEEKDAY_ABBR[date.weekday()]
+        for course in courses.values():
+            code = format_course_code(course.name)
+            for mt in course.meeting_times:
+                if weekday_abbr not in mt.days:
+                    continue
+                end_dt = datetime.combine(date, dtime.fromisoformat(mt.end_time), tzinfo=window_start.tzinfo)
+                sessions.append(
+                    Session(
+                        id=f"review_{course.id}_{day}_{mt.start_time}",
+                        task_id=f"review_{course.id}_{day}_{mt.start_time}",
+                        course_id=course.id,
+                        title=f"{code} Review Notes".strip(),
+                        duration_min=REVIEW_DURATION_MIN,
+                        due_at=end_dt + timedelta(minutes=REVIEW_WINDOW_MIN),
+                        not_before=end_dt,
+                    )
+                )
     return sessions
 
 

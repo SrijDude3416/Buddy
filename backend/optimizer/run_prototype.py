@@ -59,6 +59,7 @@ PROFILES: dict[str, list[Preference]] = {
         Preference("spread_multi_session_tasks", {}, weight=25),
         Preference("avoid_block", {"days": ["Fri", "Sat"], "start": "19:00", "end": "24:00"}, weight=0),  # hard
         Preference("after_class_bonus", {"minutes": 90}, weight=15),
+        Preference("max_continuous_work", {"minutes": 120, "break_minutes": 30}, weight=0),  # hard
     ],
 }
 

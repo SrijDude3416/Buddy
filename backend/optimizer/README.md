@@ -26,10 +26,10 @@ pip install -r requirements.txt
   one-directional version as unsafe for penalty terms) and one compiler
   function per preference type (`preferred_hours`, `daily_load_cap` -- now
   optionally weekday-scoped, `min_gap_between_sessions`, `avoid_block`,
-  `spread_multi_session_tasks`, `after_class_bonus`). This is the entire
-  surface area an AI layer would ever write into; nothing here knows or
-  cares that every `Preference` in use right now is hand-authored rather
-  than AI- or onboarding-produced.
+  `spread_multi_session_tasks`, `after_class_bonus`, `max_continuous_work`).
+  This is the entire surface area an AI layer would ever write into; nothing
+  here knows or cares that every `Preference` in use right now is
+  hand-authored rather than AI- or onboarding-produced.
 - `scheduler.py` -- stage 2: the actual CP-SAT model (placement). Fixed
   course blocks + off-hours + flexible sessions all share one `AddNoOverlap`
   list, a flexible session is an *optional* interval so "couldn't fit"
@@ -188,6 +188,94 @@ not a real limitation in practice. The default `max_time_in_seconds=10` in
 indistinguishable for the "re-solve after one chat message" loop CLAUDE.md
 describes, though not benchmarked against a harder problem instance yet.
 
+*Follow-up from Round 3, below: that last caveat mattered.* A harder problem
+instance did show up (the `max_continuous_work` rule), and headroom
+disappeared fast -- the naive version of that one constraint alone pushed a
+10s solve out to 60s+. "Not benchmarked against a harder instance yet" was
+doing a lot of work in that sentence; don't extrapolate solve-time margin
+from one easy model to the next feature added.
+
+## Round 3: two personal rules, review sessions, and course-coded titles
+
+Carlos asked for three more things: class numbers in titles, a dedicated
+post-lecture notes-review block, and two firm personal rules -- never work on
+one subject for more than an hour, and never go more than two hours without a
+real break.
+
+**Titles**: `format_course_code()` (`data_loader.py`) turns `"15151 Math
+Foundations"` into `"15-151"`; `decompose_task()` now prefixes every session
+title with it, e.g. `"21-241 Study for Recitation 3"`.
+
+**"Never work on one subject for more than an hour"** turned out to already
+be exactly what `decompose.py`'s `MAX_SESSION_MIN` controls -- no new
+mechanism needed, just changed the constant from 90 to 60. Each single
+sitting on one task is already capped there; nothing about switching to a
+*different* subject with no gap is restricted by this rule, which matches a
+literal reading of "the same subject."
+
+**"Never work without a break for more than two hours"** is a materially
+different, harder problem: it's about *any* consecutive run of flexible
+work, chained by gaps under 30 minutes, regardless of subject -- a genuine
+cumulative/chain constraint, not a per-session cap. New `max_continuous_work`
+compiler: for each session, a `streak` variable is the true (uncapped)
+cumulative work-minutes ending at it -- either just its own duration, or
+whichever other present session chains directly into it (streak + this
+session's duration) -- capped by a hard `streak <= 120min` once presence is
+accounted for. Deliberately *not* capping the streak variable's own domain to
+120: doing that would silently clamp a real violation down to a value that
+then passes the check instead of forbidding it, which is the whole point of
+the rule.
+
+**A dedicated review session after every lecture**, not just when a real
+assignment happens to need one: `generate_review_sessions()` produces a
+30-minute "Review Notes" session per lecture occurrence, generated
+independently of any real task, with a due time 45 minutes after the lecture
+ends -- if it can't land there, it should come back unplaced, not slide to
+that evening (see `Session.not_before` below).
+
+**Performance got genuinely bad before it got good, and the fix mattered
+more than the feature.** At ~100 candidate sessions (68 real + 32 review),
+`max_continuous_work`'s O(n^2) pairwise streak dependency made the model
+unable to find even a first feasible solution in 10 seconds (`UNKNOWN`).
+Linearizing `_and()`'s AND (three `Add()` calls instead of
+`AddMultiplicationEquality`) helped some. The fix that actually mattered:
+excluding the 32 review sessions from this specific check -- they're a
+light, class-anchored activity, not the grinding work the rule protects
+against -- cut candidate pairs enough to get back under 10 seconds with the
+*correct* answer (76 of 76 in-scope sessions placed), instead of a fast wrong
+one. Lesson for next time a hard constraint is added: **check whether it
+found the right answer, not just whether it returned `FEASIBLE` quickly** --
+see the next two bugs, both of which were only visible once this constraint
+made the model hard enough to expose them.
+
+**Two real bugs found while sanity-checking the result, neither related to
+the constraint itself:**
+1. When `presence` came back `False`, the `PlacedBlock`'s `kind` field was
+   never updated from `"flexible"` to `"unplaced"` before being appended to
+   the unplaced list. Every report and `eval.py` filters on
+   `kind == "unplaced"`, so a genuinely-lost session just vanished from every
+   view instead of showing up as "competed and lost" -- exactly the failure
+   mode CLAUDE.md's "worth surfacing, not hiding" principle is about. Never
+   caught before because every prior run happened to place everything it
+   attempted; this round's harder model finally produced real losses to hide.
+2. A review session's earliest-start bound (`not_before`, new field on
+   `Session`) was converted to a slot index with the same `slot_of()` used
+   for deadlines -- which *floors*. A lecture ending at 20:20 floors to the
+   20:15 slot, so the review session could start 5 real minutes before the
+   lecture it was reviewing had even ended. Needed a separate `slot_of_ceil()`
+   for earliest-start bounds specifically -- the mirror image of why
+   durations round up (`decompose.py`) rather than to nearest: flooring a
+   deadline is conservative (never allows running late), but flooring an
+   earliest-start bound is not (it allows starting early). Verified by
+   checking all 26 placed review sessions actually start at or after their
+   own lecture's end.
+
+**Result** (`tuned`, 14-day window): 70 of 76 in-scope sessions placed (6
+review sessions lost the squeeze -- an honest, expected outcome now that the
+kind-mislabeling bug is fixed, not a hidden one), busiest day 765min ->
+390min, 0 back-to-back violations, and both new hard rules verified against
+the actual output at zero violations. See `schedule_preview.html`.
+
 ## Known gaps, not yet built
 
 - Exam/fixed-time tasks aren't materialized as locked blocks (see above) --
@@ -195,11 +283,16 @@ describes, though not benchmarked against a harder problem instance yet.
 - The "hours still owed beyond this window" figure (see `CLAUDE.md`) is only
   a printed report right now, not an actual capacity-reservation constraint
   in the model.
-- The `tuned` preferences (now seven, including the personal-block routine)
+- The `tuned` preferences (now nine, including the personal-block routine)
   are hand-authored stand-ins, not onboarding/chat output -- reasonable
   starting weights and a real reverse-engineered routine, but not validated
   against a second real week or against what Carlos would pick if actually
   asked the onboarding questions.
+- `max_continuous_work` is O(sessions^2). Fine at ~68 sessions with review
+  sessions excluded, but will need an actual algorithmic fix (not another
+  ad hoc exclusion) before this scales to a real semester's worth of tasks
+  per user, or to running this check across multiple preferences that each
+  want their own O(n^2) pass.
 - `ROUTINE` (gym/meals) is a single hardcoded list for one person -- the real
   version is per-user data from CLAUDE.md's "outside commitments" onboarding
   question, not a constant in `run_prototype.py`.

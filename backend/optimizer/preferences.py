@@ -79,9 +79,16 @@ def reify_window(
 
 def _and(model: cp_model.CpModel, a: cp_model.IntVar, b: cp_model.IntVar, name: str) -> cp_model.IntVar:
     """c <=> (a AND b), as a fresh bool -- used everywhere a preference only
-    counts when the session is actually scheduled (gated by `presence`)."""
+    counts when the session is actually scheduled (gated by `presence`).
+    Linearized by hand rather than AddMultiplicationEquality(c, [a, b]): the
+    generic multiplication constraint is a heavier global constraint for
+    CP-SAT to propagate than three linear ones, and this compiler runs at
+    O(sessions^2) in a couple of places -- the difference is the gap between
+    finding a first feasible solution in seconds vs. not at all in 60."""
     c = model.NewBoolVar(name)
-    model.AddMultiplicationEquality(c, [a, b])
+    model.Add(c <= a)
+    model.Add(c <= b)
+    model.Add(c >= a + b - 1)
     return c
 
 
@@ -233,6 +240,57 @@ def _compile_after_class_bonus(model, pref, sessions, ctx):
     return terms
 
 
+def _compile_max_continuous_work(model, pref, sessions, ctx):
+    """Hard constraint: cap any unbroken run of flexible work -- sessions
+    chained by gaps under `break_minutes` -- at `minutes` total ("never work
+    without a break for more than two hours straight").
+
+    No separate same-day check is needed: every flexible session is already
+    bounded to a single day's working hours (see scheduler.py), so crossing
+    from one day into the next always means an overnight gap far larger than
+    any real break threshold -- a small gap is, by construction, same-day.
+
+    For each session i, `streak[i]` is the true (uncapped) cumulative
+    work-minutes ending at i: either just i's own duration, or -- for
+    whichever other present session j chains directly into i (ends within
+    `break_minutes` of i's start) -- streak[j] + i's duration. Only the cap
+    check itself (`streak[i] <= cap`) is a hard bound; streak's own domain is
+    left uncapped so a chain that *would* exceed the limit is actually
+    forbidden, not silently clamped down to a value that passes.
+    """
+    # Review-notes sessions are excluded: they're a light, class-anchored
+    # 30-minute activity, not the grinding work this rule protects against,
+    # and this compiler's cost is quadratic in session count -- cutting ~30
+    # review sessions out of ~100 total sessions took real solve time down
+    # meaningfully (see README.md for the actual before/after numbers).
+    sessions = [s for s in sessions if not s.task_id.startswith("review_")]
+
+    cap_slots = pref.value["minutes"] // ctx["slot_minutes"]
+    break_slots = max(1, pref.value.get("break_minutes", 30) // ctx["slot_minutes"])
+
+    streak = {s.session_id: model.NewIntVar(0, ctx["total_slots"], f"streak_{s.session_id}") for s in sessions}
+
+    for i in sessions:
+        candidates = [i.duration_slots]
+        for j in sessions:
+            if j.session_id == i.session_id:
+                continue
+            gap = model.NewIntVar(-ctx["total_slots"], ctx["total_slots"], f"gap_{j.session_id}_{i.session_id}")
+            model.Add(gap == i.start - (j.start + j.duration_slots))
+            precedes = reify_window(model, gap, 0, break_slots, f"precedes_{j.session_id}_{i.session_id}")
+            both_present = _and(model, i.presence, j.presence, f"streakpres_{j.session_id}_{i.session_id}")
+            chained = _and(model, precedes, both_present, f"chained_{j.session_id}_{i.session_id}")
+            summed = model.NewIntVar(0, ctx["total_slots"], f"streaksum_{j.session_id}_{i.session_id}")
+            model.Add(summed == streak[j.session_id] + i.duration_slots)
+            candidate = model.NewIntVar(0, ctx["total_slots"], f"streakcand_{j.session_id}_{i.session_id}")
+            model.Add(candidate == summed).OnlyEnforceIf(chained)
+            model.Add(candidate == 0).OnlyEnforceIf(chained.Not())
+            candidates.append(candidate)
+        model.AddMaxEquality(streak[i.session_id], candidates)
+        model.Add(streak[i.session_id] <= cap_slots).OnlyEnforceIf(i.presence)
+    return []
+
+
 REGISTRY: dict[str, Callable] = {
     "preferred_hours": _compile_preferred_hours,
     "daily_load_cap": _compile_daily_load_cap,
@@ -240,6 +298,7 @@ REGISTRY: dict[str, Callable] = {
     "spread_multi_session_tasks": _compile_spread_multi_session,
     "avoid_block": _compile_avoid_block,
     "after_class_bonus": _compile_after_class_bonus,
+    "max_continuous_work": _compile_max_continuous_work,
 }
 
 
