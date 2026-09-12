@@ -10,11 +10,16 @@ Use Node.js 20.9+ and Python 3.11+ with an OR-Tools wheel available for your pla
 From the repository root:
 
 ```bash
-npm run setup
+npm run setup        # on Windows: npm run setup:win
 cp buddy/.env.example buddy/.env.local  # only if you do not already have this file
 # Add OPENAI_API_KEY to buddy/.env.local
 npm run dev -- --port 3100
 ```
+
+`setup` and `setup:win` are the same steps written for each platform's virtualenv
+layout — `bin/python` and `python3` on macOS/Linux, `Scripts\python.exe` and the `py`
+launcher on Windows. Everything after setup (`dev`, `start`, `test:e2e`) detects the
+platform itself and is the same command everywhere.
 
 Open http://localhost:3100. The root command starts Next.js and the Python API on
 port 8000. `BUDDY_PYTHON` can select an existing virtualenv Python. To use an already

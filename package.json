@@ -2,7 +2,8 @@
   "name": "buddy-demo",
   "private": true,
   "scripts": {
-    "setup": "npm ci --prefix buddy && python3 -m venv backend/optimizer/.venv && backend\\optimizer\\.venv\\Scripts\\python.exe -m pip install -r backend\\optimizer\\requirements.txt",
+    "setup": "npm ci --prefix buddy && python3 -m venv backend/optimizer/.venv && backend/optimizer/.venv/bin/python -m pip install -r backend/optimizer/requirements.txt",
+    "setup:win": "npm ci --prefix buddy && py -3 -m venv backend/optimizer/.venv && backend\\optimizer\\.venv\\Scripts\\python.exe -m pip install -r backend\\optimizer\\requirements.txt",
     "dev": "node scripts/run-demo.mjs dev",
     "build": "npm run build --prefix buddy",
     "start": "node scripts/run-demo.mjs start",

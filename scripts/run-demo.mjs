@@ -3,11 +3,15 @@ import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
+import { missingVenvMessage, resolvePython } from './venv.mjs';
 const root = fileURLToPath(new URL('../', import.meta.url));
 const mode = process.argv[2] ?? 'dev';
-const python = process.env.BUDDY_PYTHON ?? path.join(root, 'backend/optimizer/.venv/Scripts/python.exe');
+// Resolved per platform (Scripts/python.exe on Windows, bin/python on macOS and
+// Linux) — see scripts/venv.mjs. Hardcoding either layout here silently breaks
+// every developer on the other one.
+const python = resolvePython(root);
 const external = process.env.FASTAPI_BASE_URL;
-if (!external && !existsSync(python)) { console.error('Run npm run setup, or set BUDDY_PYTHON to your virtualenv Python.'); process.exit(1); }
+if (!external && !existsSync(python)) { console.error(missingVenvMessage(python)); process.exit(1); }
 const children = [];
 let stopping = false;
 function stop(code = 0) { if (stopping) return; stopping = true; for (const child of children) child.kill('SIGTERM'); process.exitCode = code; }

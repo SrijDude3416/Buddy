@@ -1,5 +1,12 @@
 import { defineConfig } from '@playwright/test';
-const python = process.env.BUDDY_PYTHON ?? '../backend/optimizer/.venv/bin/python';
+// Same per-platform venv layout scripts/venv.mjs resolves for the demo runner
+// (Scripts\python.exe on Windows, bin/python on macOS and Linux); inlined because
+// Playwright loads this config from buddy/, outside that module's reach.
+const venvPython =
+  process.platform === 'win32'
+    ? '../backend/optimizer/.venv/Scripts/python.exe'
+    : '../backend/optimizer/.venv/bin/python';
+const python = process.env.BUDDY_PYTHON ?? venvPython;
 export default defineConfig({
   testDir: './tests/browser',
   timeout: 90000,
