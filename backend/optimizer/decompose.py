@@ -10,6 +10,7 @@ defaults. Treat those constants as placeholders, not decisions.
 from __future__ import annotations
 
 import math
+import re
 from dataclasses import dataclass
 
 from data_loader import Task
@@ -29,6 +30,28 @@ class Session:
     due_at: object  # datetime, kept loose to avoid circular import noise
 
 
+def humanize_title(raw_title: str) -> str:
+    """Turn a raw Notion/Canvas task name into an instruction, not a label --
+    "Recitation Quiz 3" tells you what the assignment is called, not what to
+    do about it. Real thing is SCHEMA.md's `display_title` (AI-generated
+    once, cached); this is a template stand-in until that exists, so treat
+    the specific mappings as illustrative, not exhaustive."""
+    t = raw_title.strip()
+    if m := re.match(r"^Recitation Quiz (\d+)$", t):
+        return f"Study for Recitation {m.group(1)}"
+    if m := re.match(r"^(Midterm|Exam) (\d+)$", t):
+        return f"Study for {m.group(1)} {m.group(2)}"
+    if m := re.match(r"^(.+?)\s*\(Checkin\)$", t):
+        return f"Complete {m.group(1)} Checkin"
+    if t.startswith("Section "):
+        return f"Study {t}"
+    if t.endswith(" Due"):
+        return f"Work on {t[:-len(' Due')]}"
+    if t.endswith(" Deadline"):
+        return f"Work on {t[:-len(' Deadline')]}"
+    return f"Work on {t}"
+
+
 def _round_to_slot(minutes: float) -> int:
     # Round UP, never to nearest: a 50-minute exam rounding down to 45 would
     # silently give it 5 fewer minutes than it actually needs. Overestimating
@@ -37,8 +60,15 @@ def _round_to_slot(minutes: float) -> int:
 
 
 def decompose_task(task: Task) -> list[Session]:
-    """One task -> one or more Sessions, each a multiple of SLOT_MINUTES."""
+    """One task -> one or more Sessions, each a multiple of SLOT_MINUTES.
+
+    Every session of the same task shares one title, with no "(part i/N)"
+    suffix -- position on the calendar already communicates it's ongoing
+    multi-part work, and a real calendar (see backend/optimizer/README.md)
+    just repeats the bare title across sessions.
+    """
     duration = task.est_duration_min
+    title = humanize_title(task.title)
 
     if not task.splittable or duration <= MAX_SESSION_MIN:
         return [
@@ -46,7 +76,7 @@ def decompose_task(task: Task) -> list[Session]:
                 id=f"{task.id}__s1",
                 task_id=task.id,
                 course_id=task.course_id,
-                title=task.title,
+                title=title,
                 duration_min=_round_to_slot(duration),
                 due_at=task.due_at,
             )
@@ -75,7 +105,7 @@ def decompose_task(task: Task) -> list[Session]:
                 id=f"{task.id}__s{i + 1}",
                 task_id=task.id,
                 course_id=task.course_id,
-                title=f"{task.title} (part {i + 1}/{num_sessions})",
+                title=title,
                 duration_min=this_len,
                 due_at=task.due_at,
             )

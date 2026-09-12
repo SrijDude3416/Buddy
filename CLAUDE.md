@@ -222,7 +222,18 @@ actual, running code — no longer just a sketch):
 
 - Every session — fixed or flexible — is an `IntervalVar` in one shared list, and
   `AddNoOverlap` over that list is the *only* mechanism needed for "class times are
-  immovable." No special-casing elsewhere.
+  immovable." No special-casing elsewhere. This now also covers personal routine
+  blocks (gym, meals — CLAUDE.md's onboarding "outside commitments" question feeds
+  this), materialized exactly like `courses.meeting_times`, not just class times.
+- **Working hours (e.g. 8am–11pm) bound *flexible* sessions directly, never as a
+  shared blackout interval.** An early version modeled "off-hours" as a mandatory
+  interval everything had to avoid overlapping — reasonable until a real fixed
+  commitment (gym at 6:30am) existed outside that window, at which point two
+  mandatory, always-overlapping intervals made the *entire* model infeasible, not
+  just one session. The fix: constrain each flexible session's own start/end
+  directly; fixed/personal/course blocks are restricted only by not overlapping
+  other intervals, never by time-of-day. General lesson: a mandatory mutual-exclusion
+  interval is only safe when nothing legitimately fixed can ever sit inside it.
 - A flexible session's start variable is domain-bounded by its deadline
   (`latest_start = deadline_slot - duration_slots`, slots = 15 minutes) — infeasibility
   here means "this genuinely can't be scheduled in time," which is worth surfacing, not

@@ -27,7 +27,7 @@ from datetime import datetime, timedelta, time
 
 from ortools.sat.python import cp_model
 
-from data_loader import ScheduleData, WEEKDAY_ABBR
+from data_loader import ScheduleData, WEEKDAY_ABBR, MeetingTime
 from decompose import Session, decompose_all, SLOT_MINUTES
 from preferences import Preference, SessionCtx, compile_all
 
@@ -69,6 +69,7 @@ def build_and_solve(
     window_start: datetime,
     window_days: int,
     preferences: list[Preference] = (),
+    personal_blocks: list[MeetingTime] = (),
     now_slot: int = 0,
     max_time_in_seconds: float = 10.0,
 ) -> SolveResult:
@@ -81,22 +82,26 @@ def build_and_solve(
     model = cp_model.CpModel()
     all_intervals: list[cp_model.IntervalVar] = []
 
-    # --- Off-hours blackout, per day: two immovable blocks (00:00-08:00,
-    # 23:00-24:00) rather than one spanning midnight -- simpler indexing,
-    # and back-to-back blocks across days give the same effect.
+    # NOTE: "working hours" (day_start_slot/day_end_slot below) used to be a
+    # mandatory blackout INTERVAL that everything had to avoid overlapping.
+    # That's wrong: a real fixed commitment (gym at 6:30am, dinner at 6pm)
+    # can legitimately sit outside 8am-11pm -- it's only FLEXIBLE work that
+    # should be confined there. Two mandatory intervals that overlap (gym
+    # vs. the old 00:00-08:00 blackout) made the whole model infeasible the
+    # moment a routine block existed outside the window. Fixed below: each
+    # flexible session gets a direct hard bound on its own start/end instead
+    # (see the flexible-session loop), and fixed/personal/course blocks are
+    # never restricted by time-of-day at all -- only by AddNoOverlap against
+    # each other and against flexible sessions.
     day_start_slot = _time_to_slot_of_day(DAY_START)
     day_end_slot = _time_to_slot_of_day(DAY_END)
-    for day in range(window_days):
-        base = day * SLOTS_PER_DAY
-        morning = model.NewIntervalVar(base, day_start_slot, base + day_start_slot, f"night_am_{day}")
-        evening = model.NewIntervalVar(
-            base + day_end_slot, SLOTS_PER_DAY - day_end_slot, base + SLOTS_PER_DAY, f"night_pm_{day}"
-        )
-        all_intervals += [morning, evening]
 
     # --- Fixed course blocks, materialized from courses.meeting_times for
     # every date in the window that matches. No task_id: these aren't tasks.
+    # Also tracks each course's lecture end times, so a preference can later
+    # reward flexible work landing shortly after its own class.
     placed_fixed: list[PlacedBlock] = []
+    course_lecture_ends: dict[str, list[int]] = {}
     for day in range(window_days):
         date = (window_start + timedelta(days=day)).date()
         weekday_abbr = WEEKDAY_ABBR[date.weekday()]
@@ -120,6 +125,34 @@ def build_and_solve(
                         end=end_dt,
                     )
                 )
+                course_lecture_ends.setdefault(course.id, []).append(e)
+
+    # --- Personal routine blocks (gym, meals, ...): immovable the same way a
+    # class is, just not tied to a course. Not a `courses.meeting_times` --
+    # this is what CLAUDE.md's onboarding "outside commitments" question is
+    # meant to feed, hand-authored here since that flow doesn't exist yet.
+    for day in range(window_days):
+        date = (window_start + timedelta(days=day)).date()
+        weekday_abbr = WEEKDAY_ABBR[date.weekday()]
+        for i, block in enumerate(personal_blocks):
+            if weekday_abbr not in block.days:
+                continue
+            start_dt = datetime.combine(date, time.fromisoformat(block.start_time), tzinfo=window_start.tzinfo)
+            end_dt = datetime.combine(date, time.fromisoformat(block.end_time), tzinfo=window_start.tzinfo)
+            s, e = slot_of(start_dt), slot_of(end_dt)
+            iv = model.NewIntervalVar(s, e - s, e, f"routine_{i}_{day}")
+            all_intervals.append(iv)
+            placed_fixed.append(
+                PlacedBlock(
+                    id=f"routine_{i}_{day}",
+                    task_id=None,
+                    course_id=None,
+                    title=block.location or "Personal",  # location field reused as the label
+                    kind="fixed",
+                    start=start_dt,
+                    end=end_dt,
+                )
+            )
 
     # --- Flexible sessions, decomposed from not-done tasks. Optional so an
     # individual session can come back "unplaced" instead of the whole solve
@@ -161,19 +194,35 @@ def build_and_solve(
         model.AddDivisionEquality(day, start, SLOTS_PER_DAY)
         minute_of_day = model.NewIntVar(0, SLOTS_PER_DAY - 1, f"mod_{sess.id}")
         model.AddModuloEquality(minute_of_day, start, SLOTS_PER_DAY)
-        session_ctxs.append(SessionCtx(sess.id, sess.task_id, presence, start, duration_slots, day, minute_of_day))
 
-    model.AddNoOverlap(all_intervals)
+        # Flexible work only happens in working hours (8am-11pm) -- a direct
+        # bound on this session's own start/end, not a shared blackout
+        # interval (see the NOTE above for why that broke once real fixed
+        # commitments existed outside this window).
+        model.Add(minute_of_day >= day_start_slot)
+        model.Add(minute_of_day + duration_slots <= day_end_slot)
+        session_ctxs.append(
+            SessionCtx(sess.id, sess.task_id, sess.course_id, presence, start, duration_slots, day, minute_of_day)
+        )
 
     # --- Preferences: everything the AI layer would eventually write into
     # `preferences` (CLAUDE.md) goes through the same compiler registry here.
+    # Compiled BEFORE the main AddNoOverlap call, not after: a compiler like
+    # `avoid_block` needs to add its own blackout intervals into the same
+    # `all_intervals` pool off-hours uses, and that only works if nothing has
+    # locked the list into a no-overlap constraint yet.
     pref_ctx = {
         "slot_minutes": SLOT_MINUTES,
         "window_days": window_days,
         "total_slots": total_slots,
+        "day0_weekday": window_start.weekday(),  # 0=Mon..6=Sun, for weekday-scoped preferences
+        "course_lecture_ends": course_lecture_ends,
+        "all_intervals": all_intervals,  # compilers may append (e.g. avoid_block)
         "extra_no_overlap_groups": [],
     }
     preference_terms = compile_all(model, list(preferences), session_ctxs, pref_ctx)
+
+    model.AddNoOverlap(all_intervals)
     for group in pref_ctx["extra_no_overlap_groups"]:
         model.AddNoOverlap(group)
 

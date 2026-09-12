@@ -9,14 +9,30 @@ from __future__ import annotations
 
 import json
 import sys
+import time as _time
 from datetime import datetime, timedelta
 
-from data_loader import load_data
+from data_loader import load_data, MeetingTime
 from scheduler import build_and_solve
 from preferences import Preference
 from eval import evaluate, print_eval
 
 NOW = datetime.fromisoformat("2026-09-12T00:00:00-04:00")  # start of window == start of day
+
+# Personal routine, hand-authored from Carlos's own real (human-tuned) week --
+# see the calendar screenshot this was reverse-engineered from, in chat. Not
+# `courses.meeting_times`: this is what CLAUDE.md's onboarding "outside
+# commitments" question is meant to eventually produce. MeetingTime is reused
+# here rather than a new dataclass; its `location` field doubles as the
+# block's display label since personal blocks don't have a real location.
+ROUTINE: list[MeetingTime] = [
+    MeetingTime(["Mon", "Tue", "Wed", "Thu", "Fri"], "06:30", "07:45", "Gym"),
+    MeetingTime(["Mon", "Tue", "Wed", "Thu", "Fri"], "07:45", "08:30", "Breakfast & Shower"),
+    MeetingTime(["Sat", "Sun"], "09:30", "10:15", "Breakfast & Shower"),
+    MeetingTime(["Mon", "Tue", "Wed", "Thu", "Fri"], "12:00", "12:45", "Lunch"),
+    MeetingTime(["Sat", "Sun"], "13:00", "13:45", "Lunch"),
+    MeetingTime(["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"], "18:00", "18:45", "Dinner"),
+]
 
 # Hand-authored stand-ins for what onboarding/chat would eventually produce
 # (CLAUDE.md: preferences are always typed objects the compiler registry
@@ -29,11 +45,20 @@ PROFILES: dict[str, list[Preference]] = {
         Preference("daily_load_cap", {"minutes": 240}, weight=15),
         Preference("preferred_hours", {"start": "17:00", "end": "23:00"}, weight=20),
     ],
-    "tuned": [
+    "v2_gaps_and_spread": [
         Preference("daily_load_cap", {"minutes": 240}, weight=15),
         Preference("preferred_hours", {"start": "17:00", "end": "23:00"}, weight=20),
-        Preference("min_gap_between_sessions", {"minutes": 15}, weight=0),  # hard constraint; weight unused
+        Preference("min_gap_between_sessions", {"minutes": 15}, weight=0),  # hard; weight unused
         Preference("spread_multi_session_tasks", {}, weight=25),
+    ],
+    "tuned": [
+        Preference("daily_load_cap", {"minutes": 240}, weight=15),
+        Preference("daily_load_cap", {"minutes": 90, "days": ["Sun"]}, weight=25),  # protect a real rest day
+        Preference("preferred_hours", {"start": "17:00", "end": "23:00"}, weight=20),
+        Preference("min_gap_between_sessions", {"minutes": 15}, weight=0),  # hard; weight unused
+        Preference("spread_multi_session_tasks", {}, weight=25),
+        Preference("avoid_block", {"days": ["Fri", "Sat"], "start": "19:00", "end": "24:00"}, weight=0),  # hard
+        Preference("after_class_bonus", {"minutes": 90}, weight=15),
     ],
 }
 
@@ -55,10 +80,18 @@ def main():
     window_end = NOW + timedelta(days=window_days)
 
     data = load_data()
-    result = build_and_solve(data, window_start=NOW, window_days=window_days, preferences=PROFILES[profile_name])
+    t0 = _time.perf_counter()
+    result = build_and_solve(
+        data,
+        window_start=NOW,
+        window_days=window_days,
+        preferences=PROFILES[profile_name],
+        personal_blocks=ROUTINE,
+    )
+    solve_seconds = _time.perf_counter() - t0
 
     print(f"window: {NOW.date()} .. {window_end.date()} ({window_days} days)   profile: {profile_name}")
-    print(f"status: {result.status_name}")
+    print(f"status: {result.status_name}   solved in {solve_seconds:.2f}s")
     if result.objective_value is not None:
         # For a maximization problem the bound is >= the best solution found
         # until proven optimal, so the gap is (bound - objective), not the
@@ -110,6 +143,7 @@ def main():
         "window_days": window_days,
         "profile": profile_name,
         "status": result.status_name,
+        "solve_seconds": solve_seconds,
         "objective": result.objective_value,
         "best_bound": result.best_bound,
         "metrics": metrics,

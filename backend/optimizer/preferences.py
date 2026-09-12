@@ -25,6 +25,8 @@ from typing import Callable
 
 from ortools.sat.python import cp_model
 
+from data_loader import WEEKDAY_ABBR
+
 
 @dataclass
 class Preference:
@@ -41,6 +43,7 @@ class SessionCtx:
 
     session_id: str
     task_id: str
+    course_id: str
     presence: cp_model.IntVar
     start: cp_model.IntVar
     duration_slots: int
@@ -108,12 +111,22 @@ def _compile_preferred_hours(model, pref, sessions, ctx):
 def _compile_daily_load_cap(model, pref, sessions, ctx):
     """Penalize flexible-session minutes on any single day beyond the cap.
     This directly targets the "everything piles onto day one" failure mode
-    the placeholder objective produced with no preferences at all."""
+    the placeholder objective produced with no preferences at all.
+
+    `value["days"]` (optional) scopes the cap to specific weekdays -- e.g. a
+    much lower Sunday cap alongside a normal one for every other day, rather
+    than one uniform number that can't tell a rest day from a workday.
+    """
     cap_minutes = pref.value["minutes"]
     cap_slots = cap_minutes // ctx["slot_minutes"]
     weight_per_slot = round(pref.weight)
+    days_filter = set(pref.value["days"]) if "days" in pref.value else None
     terms = []
     for day in range(ctx["window_days"]):
+        if days_filter is not None:
+            weekday = WEEKDAY_ABBR[(ctx["day0_weekday"] + day) % 7]
+            if weekday not in days_filter:
+                continue
         active_today = []
         for s in sessions:
             in_day = model.NewBoolVar(f"inday_{day}_{s.session_id}")
@@ -174,11 +187,59 @@ def _compile_spread_multi_session(model, pref, sessions, ctx):
     return terms
 
 
+def _compile_avoid_block(model, pref, sessions, ctx):
+    """Hard constraint: no flexible work at all in a declared window on the
+    given weekdays -- e.g. protect Friday/Saturday night. Implemented exactly
+    like the off-hours blackout (an immovable interval fed into the same
+    AddNoOverlap pool), not a penalty -- CLAUDE.md's own example preference
+    type, and the one place a soft nudge doesn't match what a real calendar
+    (see the "Friday Night" / "Saturday Night" blocks) actually does: total
+    protection, not "try not to.\""""
+    days_wanted = set(pref.value["days"])
+    lo = _hhmm_to_slot(pref.value["start"], ctx["slot_minutes"])
+    hi = min(_hhmm_to_slot(pref.value["end"], ctx["slot_minutes"]), (24 * 60) // ctx["slot_minutes"])
+    if hi <= lo:
+        return []
+    for day in range(ctx["window_days"]):
+        weekday = WEEKDAY_ABBR[(ctx["day0_weekday"] + day) % 7]
+        if weekday not in days_wanted:
+            continue
+        base = day * ((24 * 60) // ctx["slot_minutes"])
+        iv = model.NewIntervalVar(base + lo, hi - lo, base + hi, f"avoidblock_{day}_{pref.value['start']}")
+        ctx["all_intervals"].append(iv)
+    return []
+
+
+def _compile_after_class_bonus(model, pref, sessions, ctx):
+    """Reward a session starting shortly after its OWN course's lecture ends
+    that same day -- "review right after class" is a strong, specific
+    pattern in real study schedules that a generic evening-hours preference
+    can't produce on its own."""
+    window_slots = pref.value.get("minutes", 90) // ctx["slot_minutes"]
+    weight = round(pref.weight)
+    terms = []
+    for s in sessions:
+        ends = ctx["course_lecture_ends"].get(s.course_id, [])
+        if not ends:
+            continue
+        near_any = []
+        for i, end_slot in enumerate(ends):
+            in_window = reify_window(model, s.start, end_slot, end_slot + window_slots, f"afterclass_{s.session_id}_{i}")
+            near_any.append(in_window)
+        near_lecture = model.NewBoolVar(f"nearlecture_{s.session_id}")
+        model.AddMaxEquality(near_lecture, near_any)
+        rewarded = _and(model, near_lecture, s.presence, f"afterclass_active_{s.session_id}")
+        terms.append((weight, rewarded))
+    return terms
+
+
 REGISTRY: dict[str, Callable] = {
     "preferred_hours": _compile_preferred_hours,
     "daily_load_cap": _compile_daily_load_cap,
     "min_gap_between_sessions": _compile_min_gap,
     "spread_multi_session_tasks": _compile_spread_multi_session,
+    "avoid_block": _compile_avoid_block,
+    "after_class_bonus": _compile_after_class_bonus,
 }
 
 

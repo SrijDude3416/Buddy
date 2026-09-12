@@ -24,9 +24,12 @@ pip install -r requirements.txt
   a `Preference(type, value, weight)` object plus `reify_window` (a correctly
   bidirectional window-membership helper -- CLAUDE.md specifically flags a
   one-directional version as unsafe for penalty terms) and one compiler
-  function per preference type. This is the entire surface area an AI layer
-  would ever write into; nothing here knows or cares that every `Preference`
-  in use right now is hand-authored rather than AI- or onboarding-produced.
+  function per preference type (`preferred_hours`, `daily_load_cap` -- now
+  optionally weekday-scoped, `min_gap_between_sessions`, `avoid_block`,
+  `spread_multi_session_tasks`, `after_class_bonus`). This is the entire
+  surface area an AI layer would ever write into; nothing here knows or
+  cares that every `Preference` in use right now is hand-authored rather
+  than AI- or onboarding-produced.
 - `scheduler.py` -- stage 2: the actual CP-SAT model (placement). Fixed
   course blocks + off-hours + flexible sessions all share one `AddNoOverlap`
   list, a flexible session is an *optional* interval so "couldn't fit"
@@ -117,15 +120,88 @@ solved to exact `OPTIMAL` (bound == objective); the denser data's `FEASIBLE`
 runs would have shown a negative "gap" -- i.e. over 100% optimized -- had
 this not been caught.
 
+## Round 2: reverse-engineering a real, human-tuned week
+
+Carlos shared a screenshot of his own actual (long-hand-tuned) weekly
+calendar and asked what preferences would be needed to get CP-SAT output
+resembling it. Reverse-engineered structure, built it, re-ran.
+
+**What the real calendar showed that the model didn't have:**
+- Recurring personal commitments (gym, breakfast/shower, lunch, dinner) that
+  aren't tasks at all -- they just sit on the calendar like a locked class.
+- Friday and Saturday night are completely off-limits to work, no exceptions.
+- Sunday is a real rest day -- much lighter than the daily_load_cap that
+  applies every other day, not just "lighter by feel."
+- A strong "review shortly after this exact class" pattern -- e.g. Matrices
+  lecture at 9am, Matrices note-revision at 10am, same day, every time.
+- Titles are instructions ("Study for Recitation 3"), and repeated titles for
+  a multi-part task carry no part-count suffix.
+
+**Built to match:**
+- `personal_blocks` -- a new `build_and_solve` parameter, hand-authored in
+  `run_prototype.py`'s `ROUTINE` list, materialized exactly like
+  `courses.meeting_times` (reuses the `MeetingTime` dataclass; its `location`
+  field doubles as the block's label).
+- `avoid_block` (hard) -- total protection for a weekday-scoped window, used
+  for Fri/Sat 7pm-midnight.
+- `daily_load_cap` extended with an optional `value["days"]` filter, so a
+  much lower Sunday-only cap can stack alongside the normal one.
+- `after_class_bonus` -- rewards a session starting within N minutes after
+  its *own course's* lecture ends that same day, using `reify_window` against
+  each occurrence of that course's meeting time in the window.
+- `humanize_title()` in `decompose.py` -- a small template layer ("Recitation
+  Quiz 3" -> "Study for Recitation 3", "X Due" -> "Work on X", etc.) standing
+  in for SCHEMA.md's real `display_title`. The `(part i/N)` suffix is gone;
+  every session of a task now shares one title.
+
+**A real infeasibility this caused, and the actual bug underneath it**:
+adding personal blocks made the *whole model* infeasible, not just some
+sessions. Root cause: the working-hours boundary (8am-11pm) had been built as
+a mandatory blackout *interval* that everything -- not just flexible work --
+had to avoid overlapping. That was never wrong before because every fixed
+thing so far (classes) happened to fall inside 8am-11pm. Gym at 6:30am broke
+that assumption immediately: two mandatory, always-overlapping intervals
+(gym vs. the 00:00-08:00 blackout) can never satisfy `AddNoOverlap`. Fixed by
+removing the blackout interval entirely and instead putting a direct hard
+bound on each *flexible* session's own start/end -- fixed/personal/course
+blocks are no longer restricted by time-of-day at all, only by not
+overlapping each other or flexible work, which is what "fixed" should have
+meant from the start. The `avoid_block` compiler had an identical version of
+the same bug (its blackout window reached into the same already-mandatory
+territory) and needed the same category of fix.
+
+**Result** (`tuned`, 14-day window, routine blocks present in both runs now
+so the baseline comparison is apples-to-apples): busiest day 765min ->
+375min, evening adherence 37% -> 63% (lower than the earlier all-evening
+run on purpose -- a good chunk of work now happens right after class instead,
+which is more realistic, not worse), 0 back-to-back violations, 0 same-day-
+crammed tasks, all 35 sessions still placed. See `schedule_preview.html`.
+
+**Compute time** (the other thing asked about this round): tested budgets
+from 1s to 20s against this exact model. Quality is already within noise of
+final at **1 second** -- objective, sessions placed, busiest-day, and evening
+adherence all land in the same range regardless of budget. CP-SAT never
+reports strict `OPTIMAL` for a model this size in any of these budgets (it's
+always `FEASIBLE`), but the gap stays under 0.01% the entire time, so that's
+not a real limitation in practice. The default `max_time_in_seconds=10` in
+`scheduler.py` has a lot of headroom in it -- 2-3s would very likely be
+indistinguishable for the "re-solve after one chat message" loop CLAUDE.md
+describes, though not benchmarked against a harder problem instance yet.
+
 ## Known gaps, not yet built
 
 - Exam/fixed-time tasks aren't materialized as locked blocks (see above) --
-  the single biggest correctness gap found this round.
+  the single biggest correctness gap found across both rounds.
 - The "hours still owed beyond this window" figure (see `CLAUDE.md`) is only
   a printed report right now, not an actual capacity-reservation constraint
   in the model.
-- The four preferences in `tuned` are hand-authored stand-ins, not
-  onboarding/chat output -- reasonable starting weights, not validated
-  against what Carlos would actually pick for himself.
+- The `tuned` preferences (now seven, including the personal-block routine)
+  are hand-authored stand-ins, not onboarding/chat output -- reasonable
+  starting weights and a real reverse-engineered routine, but not validated
+  against a second real week or against what Carlos would pick if actually
+  asked the onboarding questions.
+- `ROUTINE` (gym/meals) is a single hardcoded list for one person -- the real
+  version is per-user data from CLAUDE.md's "outside commitments" onboarding
+  question, not a constant in `run_prototype.py`.
 - Not wrapped as the FastAPI service `CLAUDE.md` calls for; this is still a
   script you run locally.
