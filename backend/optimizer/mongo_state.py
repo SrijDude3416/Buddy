@@ -152,6 +152,9 @@ def save_new_tasks(tasks: list[data_loader.Task], user_id: str = DEMO_USER_ID) -
     breakdown survives a restart too, not just the same server process."""
     if not tasks:
         return
+    if request_mode.get() == "demo":
+        return
+    user_id = mongo_user_id() or user_id
     db = get_db()
     now = datetime.now(timezone.utc)
     db.tasks.insert_many(
@@ -181,6 +184,9 @@ def save_new_tasks(tasks: list[data_loader.Task], user_id: str = DEMO_USER_ID) -
 def delete_tasks(task_ids: set[str] | list[str], user_id: str = DEMO_USER_ID) -> None:
     if not task_ids:
         return
+    if request_mode.get() == "demo":
+        return
+    user_id = mongo_user_id() or user_id
     db = get_db()
     db.tasks.delete_many({"user_id": user_id, "_id": {"$in": list(task_ids)}})
 
