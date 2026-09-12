@@ -2,6 +2,7 @@
 // auto-opens, and is always seeded with a context object rather than bare text.
 import { useEffect, useRef, useState } from 'react';
 import { Send, X } from 'lucide-react';
+import { BuddyMark } from '../ui/Brand.jsx';
 import { useChat } from '../../state/ChatProvider.jsx';
 import { Spinner } from '../ui/Spinner.jsx';
 import { ErrorNotice } from '../ui/ErrorNotice.jsx';
@@ -51,14 +52,19 @@ export function ChatSidebar() {
       <aside
         aria-hidden={!open}
         inert={!open}
-        className={`fixed top-0 right-0 h-full w-80 max-w-[85vw] bg-white dark:bg-stone-900 border-l border-stone-200 dark:border-stone-800 z-50 flex flex-col transition-transform ${
+        className={`fixed top-0 right-0 h-full w-[22rem] max-w-[90vw] bg-white dark:bg-stone-900 border-l border-stone-200 dark:border-stone-800 shadow-2xl shadow-stone-900/20 z-50 flex flex-col transition-transform ${
           open ? 'translate-x-0' : 'translate-x-full invisible'
         }`}
       >
         <div className="flex items-center justify-between px-4 py-3 border-b border-stone-200 dark:border-stone-800">
-          <div>
-            <p className="font-serif text-lg text-stone-900 dark:text-stone-100">Buddy</p>
-            {context?.topic && <p className="text-xs text-stone-400 dark:text-stone-500">On: {context.topic}</p>}
+          <div className="flex items-center gap-2.5 min-w-0">
+            <BuddyMark className="w-8 h-8 text-base rounded-lg" />
+            <div className="min-w-0">
+              <p className="font-serif text-lg leading-tight text-stone-900 dark:text-stone-100">Buddy</p>
+              <p className="text-xs text-stone-400 dark:text-stone-500 truncate">
+                {context?.topic ? `On: ${context.topic}` : 'Changes go through the optimizer, never by hand'}
+              </p>
+            </div>
           </div>
           <button type="button" onClick={close} className="text-stone-400 dark:text-stone-500 hover:text-stone-600 dark:hover:text-stone-300" aria-label="Close chat">
             <X className="w-5 h-5" />
@@ -67,12 +73,15 @@ export function ChatSidebar() {
 
         <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-3 space-y-2">
           {messages.length === 0 && !sending && (
-            <p className="text-sm text-stone-400 dark:text-stone-500">
-              Tell Buddy how you work. Applied changes appear in your calendar.
-            </p>
+            <div className="pt-1 pb-2">
+              <p className="text-sm text-stone-600 dark:text-stone-300">
+                Tell Buddy how you work. Each message becomes typed preferences the optimizer re-solves — applied changes appear on your calendar.
+              </p>
+              <p className="text-xs text-stone-400 dark:text-stone-500 mt-3 mb-2">Try one</p>
+            </div>
           )}
           {messages.length === 0 && ["I prefer studying in the evening", "Keep Friday 7 PM to midnight free", "Limit Sunday study time to 90 minutes", "I need longer breaks during study stretches"].map(text => (
-            <button key={text} type="button" disabled={sending} onClick={() => send(text)} className="block text-left text-xs rounded-lg border border-stone-300 dark:border-stone-700 px-3 py-2 w-full">{text}</button>
+            <button key={text} type="button" disabled={sending} onClick={() => send(text)} className="block text-left text-xs rounded-lg border border-stone-200 dark:border-stone-700 bg-stone-50 dark:bg-stone-800/60 hover:border-emerald-500 dark:hover:border-emerald-500 hover:bg-white dark:hover:bg-stone-800 px-3 py-2 w-full text-stone-700 dark:text-stone-200 transition-colors disabled:opacity-50">{text}</button>
           ))}
           {messages.map((m) => (
             <div key={m._id} className={m.role === 'user' ? 'text-right' : ''}>
@@ -83,10 +92,18 @@ export function ChatSidebar() {
               >
                 {m.text}
               </span>
-              {m.mode && <p className="text-[10px] text-stone-500 mt-1">OpenAI → Preferences API → CP-SAT</p>}
-              {m.preference_calls?.length > 0 && <details className="mt-2 text-xs text-left border border-emerald-300 rounded-lg p-2">
-                <summary className="cursor-pointer">{m.preference_calls.length} preference API calls</summary>
-                <pre className="whitespace-pre-wrap break-all mt-2 max-h-64 overflow-auto">{JSON.stringify(m.preference_calls, null, 2)}</pre>
+              {m.mode && (
+                <p className="mt-1.5 flex items-center gap-1 text-[10px] text-stone-400 dark:text-stone-500" title="How this message reached your calendar">
+                  <span className="rounded bg-stone-100 dark:bg-stone-800 px-1 py-px">OpenAI</span>
+                  <span aria-hidden="true">→</span>
+                  <span className="rounded bg-stone-100 dark:bg-stone-800 px-1 py-px">Preferences API</span>
+                  <span aria-hidden="true">→</span>
+                  <span className="rounded bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 px-1 py-px">CP-SAT</span>
+                </p>
+              )}
+              {m.preference_calls?.length > 0 && <details className="mt-2 text-xs text-left border border-emerald-200 dark:border-emerald-900 bg-emerald-50/50 dark:bg-emerald-950/40 rounded-lg p-2">
+                <summary className="cursor-pointer text-emerald-800 dark:text-emerald-200">{m.preference_calls.length} preference API call{m.preference_calls.length === 1 ? '' : 's'} — the typed objects the model emitted</summary>
+                <pre className="whitespace-pre-wrap break-all mt-2 max-h-64 overflow-auto text-stone-700 dark:text-stone-300">{JSON.stringify(m.preference_calls, null, 2)}</pre>
               </details>}
             </div>
           ))}
@@ -94,7 +111,7 @@ export function ChatSidebar() {
           {error && <ErrorNotice error={error} compact />}
         </div>
 
-        {lastChange && <button type="button" disabled={sending} onClick={undo} className="text-sm text-emerald-700 dark:text-emerald-300 py-2">Undo last schedule change</button>}
+        {lastChange && <button type="button" disabled={sending} onClick={undo} className="mx-4 mb-2 text-sm text-emerald-700 dark:text-emerald-300 hover:underline py-1.5 text-left disabled:opacity-50">Undo last schedule change</button>}
         <div className="p-3 border-t border-stone-200 dark:border-stone-800 flex items-center gap-2">
           <input
             maxLength={2000}
@@ -109,7 +126,7 @@ export function ChatSidebar() {
             type="button"
             onClick={sendDraft}
             disabled={sending || !draft.trim()}
-            className="p-2 rounded-lg bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900 shrink-0 disabled:opacity-40"
+            className="p-2 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white shrink-0 disabled:opacity-40 transition-colors"
             aria-label="Send"
           >
             <Send className="w-4 h-4" />

@@ -1,10 +1,11 @@
-import { useEffect, useState } from 'react';
-import { MessageCircle } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { MessageCircle, RefreshCw, RotateCcw, Sparkles, Undo2 } from 'lucide-react';
 import { ThemeProvider } from './state/ThemeProvider.jsx';
 import { PlanProvider, usePlan } from './state/PlanProvider.jsx';
 import { ChatProvider, useChat } from './state/ChatProvider.jsx';
 import { AuthProvider, useAuth } from './state/AuthProvider.jsx';
 import { preferencesApi, planApi } from './lib/api/index.js';
+import { buildColorMap, colorFor } from './lib/courseColors.js';
 import { Onboarding } from './pages/Onboarding.jsx';
 import { PlanPage } from './pages/PlanPage.jsx';
 import { TaskDetail } from './pages/TaskDetail.jsx';
@@ -14,6 +15,19 @@ import { ThemeToggle } from './components/ui/ThemeToggle.jsx';
 import { UserMenu } from './components/ui/UserMenu.jsx';
 import { Spinner } from './components/ui/Spinner.jsx';
 import { ErrorNotice } from './components/ui/ErrorNotice.jsx';
+import { BuddyMark, BuddyStar } from './components/ui/Brand.jsx';
+
+const SUBTITLE = {
+  welcome: 'Your week, solved by math you can talk to.',
+  onboarding: 'Five quick questions. No forms.',
+  calendar: 'Every session placed by the optimizer. Change anything by asking.',
+};
+
+/** The complement of CP-SAT's objective/bound gap, as a percentage string. */
+function optimalityPercent(run) {
+  if (!run || run.gap === null || run.gap === undefined) return null;
+  return Math.max(0, Math.min(100, (1 - run.gap) * 100)).toFixed(1);
+}
 
 function Demo({ initial, onReset }) {
   const { mode } = useAuth();
@@ -60,43 +74,182 @@ function Demo({ initial, onReset }) {
       setNotice('Recalculated with your current preferences.');
     } catch (e) { setError(e); } finally { setRecalculating(false); }
   }
+
+  // The welcome card previews the plan the server already solved. Same color
+  // assignment the calendar will use (course order), so a class is the same
+  // color here as it is on the grid a click later.
+  const courses = initial.plan.courses;
+  const colorMap = useMemo(() => buildColorMap(courses.map((c) => c._id)), [courses]);
+  // The optimizer's task list also carries synthetic entries (one per meal
+  // type, one per review-session occurrence, one per windowed commitment --
+  // plan_payload.py) so the frontend has something to hang those sessions on.
+  // They aren't assignments, so they don't count as ones here.
+  const isSynthetic = (id) => /^(review|meal|commitment)_/.test(id ?? '');
+  const assignments = initial.plan.tasks.filter((t) => t.course_id && !isSynthetic(t._id)).length;
+  const studySessions = initial.plan.sessions.filter(
+    (s) => s.type === 'flexible' && s.task_id && !/^(meal|commitment)_/.test(s.task_id),
+  ).length;
+  const optimality = optimalityPercent(initial.plan.run);
+  const isDemo = mode === 'demo';
+
   return <main className="min-h-screen p-4 sm:p-6 text-stone-900 dark:text-stone-100">
-    <div className={phase === 'calendar' ? 'max-w-6xl mx-auto' : 'max-w-xl mx-auto py-10'}>
+    <div className={phase === 'calendar' ? 'max-w-6xl mx-auto' : 'max-w-xl mx-auto py-6 sm:py-10'}>
       <header className="flex items-center justify-between gap-3 mb-6">
-        <div><h1 className="font-serif text-3xl">Buddy</h1><p className="text-sm text-stone-500">A study plan that listens.</p></div>
-        <div className="flex items-center gap-2"><ThemeToggle /><UserMenu />{phase === 'calendar' && <button type="button" onClick={toggle} className="flex gap-2 items-center rounded-lg bg-emerald-700 text-white px-3 py-2" aria-label="Open chat with Buddy"><MessageCircle className="w-4 h-4" />Ask Buddy</button>}</div>
-      </header>
-      {phase === 'welcome' && <section className="space-y-5">
-        <h2 className="font-serif text-2xl">{mode === 'demo' ? 'Start with your demo week' : 'Start with your week'}</h2>
-        <p className="text-sm text-stone-600 dark:text-stone-300">Your classes and study blocks are loaded from the preferences API. Confirm these settings or customize them first.</p>
-        <div className="bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 rounded-xl p-4 space-y-2 text-sm">
-          <p><strong>{initial.plan.courses.length} CMU classes</strong> · September 12–25, 2026</p>
-          {initial.plan.courses.map(c => <p key={c._id}>{c.name}</p>)}
-          <hr className="border-stone-200 dark:border-stone-800" />
-          <p>Default work window: 8 AM–5 PM · 15-minute breaks</p>
-          <p>Calendar source: {mode === 'demo' ? 'Demo data' : 'MongoDB'}</p>
+        <div className="flex items-center gap-3 min-w-0">
+          <BuddyMark />
+          <div className="min-w-0">
+            {/* The rolling word is the landing hero's moment; in the app the mark stays still. */}
+            <h1 className="font-serif text-2xl leading-tight tracking-tight"><BuddyStar /></h1>
+            <p className="text-xs text-stone-500 dark:text-stone-400 mt-1 truncate">{SUBTITLE[phase]}</p>
+          </div>
         </div>
-        <div className="flex gap-3"><button disabled={busy} onClick={() => confirm(answers)} className="rounded-lg bg-emerald-700 text-white px-4 py-2">{busy ? 'Loading your calendar…' : 'Confirm preferences & view calendar'}</button><button disabled={busy} onClick={() => setPhase('onboarding')} className="text-sm underline">Customize</button></div>
+        <div className="flex items-center gap-2 shrink-0">
+          <ThemeToggle />
+          <UserMenu />
+          {phase === 'calendar' && (
+            // The only way to change the schedule: talk to Buddy.
+            <button
+              type="button"
+              onClick={toggle}
+              aria-label="Open chat with Buddy"
+              title="Ask Buddy to change your schedule"
+              className="flex items-center gap-2 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white px-3.5 py-2 text-sm font-medium shadow-sm shadow-emerald-900/20 transition-colors"
+            >
+              <MessageCircle className="w-4 h-4" />
+              <span className="hidden sm:inline">Ask Buddy</span>
+            </button>
+          )}
+        </div>
+      </header>
+
+      {phase === 'welcome' && <section className="space-y-6 buddy-rise">
+        <div>
+          <p className="text-sm font-medium text-emerald-700 dark:text-emerald-400">
+            {isDemo ? 'Demo week · September 12–25, 2026' : 'Your week · September 12–25, 2026'}
+          </p>
+          <h2 className="font-serif text-3xl tracking-tight mt-1">
+            {isDemo ? 'Your demo week is already solved.' : 'Your week is already solved.'}
+          </h2>
+          <p className="text-sm text-stone-600 dark:text-stone-300 mt-2 leading-relaxed">
+            Buddy loaded {courses.length} classes and placed every study session with CP-SAT around the fixed class
+            times. Open the calendar as it is, or change how you work first.
+          </p>
+        </div>
+
+        <div className="rounded-2xl bg-white dark:bg-stone-900 border border-stone-200/80 dark:border-stone-800 shadow-sm shadow-stone-900/5 overflow-hidden">
+          <div className="px-4 py-3 border-b border-stone-100 dark:border-stone-800">
+            <p className="text-sm font-medium text-stone-500 dark:text-stone-400">
+              {courses.length} CMU classes on this plan
+            </p>
+          </div>
+          <ul className="px-4 py-3 space-y-2">
+            {courses.map((c) => {
+              const color = colorFor(colorMap, c._id);
+              return (
+                <li key={c._id} className="flex items-center gap-2.5 text-sm">
+                  <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${color.dot}`} />
+                  <span className="text-stone-800 dark:text-stone-100 truncate">{c.name}</span>
+                </li>
+              );
+            })}
+          </ul>
+          <div className="grid grid-cols-3 divide-x divide-stone-100 dark:divide-stone-800 border-t border-stone-100 dark:border-stone-800">
+            <div className="px-4 py-3">
+              <p className="font-serif text-2xl text-stone-900 dark:text-stone-100 leading-none">{assignments}</p>
+              <p className="text-xs text-stone-500 dark:text-stone-400 mt-1">assignments</p>
+            </div>
+            <div className="px-4 py-3">
+              <p className="font-serif text-2xl text-stone-900 dark:text-stone-100 leading-none">{studySessions}</p>
+              <p className="text-xs text-stone-500 dark:text-stone-400 mt-1">study sessions placed</p>
+            </div>
+            <div className="px-4 py-3">
+              <p className="font-serif text-2xl text-emerald-700 dark:text-emerald-400 leading-none">{optimality ? `${optimality}%` : '—'}</p>
+              <p className="text-xs text-stone-500 dark:text-stone-400 mt-1">provably optimal</p>
+            </div>
+          </div>
+          <p className="px-4 py-2.5 border-t border-stone-100 dark:border-stone-800 text-xs text-stone-400 dark:text-stone-500">
+            {isDemo ? 'Sample data · nothing you do here is saved' : 'Live data from MongoDB · your changes are saved'}
+          </p>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-3">
+          <button
+            disabled={busy}
+            onClick={() => confirm(answers)}
+            className="flex items-center gap-2 rounded-lg bg-emerald-700 hover:bg-emerald-800 disabled:opacity-60 text-white px-4 py-2.5 text-sm font-medium shadow-sm shadow-emerald-900/20 transition-colors"
+          >
+            {busy && <Spinner className="w-4 h-4" />}
+            {busy ? 'Loading your calendar…' : 'Confirm preferences & view calendar'}
+          </button>
+          <button
+            disabled={busy}
+            onClick={() => setPhase('onboarding')}
+            className="rounded-lg border border-stone-300 dark:border-stone-700 hover:border-emerald-600 dark:hover:border-emerald-500 px-4 py-2.5 text-sm font-medium text-stone-700 dark:text-stone-200 transition-colors"
+          >
+            Customize
+          </button>
+        </div>
         {error && <ErrorNotice error={error} onRetry={() => confirm(answers)} />}
       </section>}
-      {phase === 'onboarding' && <Onboarding initialAnswers={answers} onComplete={confirm} submitting={busy} submitError={error} onRetry={() => confirm(answers)} />}
+
+      {phase === 'onboarding' && <div className="buddy-rise"><Onboarding initialAnswers={answers} onComplete={confirm} submitting={busy} submitError={error} onRetry={() => confirm(answers)} /></div>}
+
       {phase === 'calendar' && <>
-        {/* Demo scaffolding, kept to one quiet line. Everything here is about the
-            harness, not the student's week — it should never compete with the
-            calendar for attention. */}
-        {lastChange && <p role="status" className="mb-4 px-3 py-2 rounded-lg bg-emerald-50/70 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-200 text-sm">Calendar rebuilt by CP-SAT · {lastChange.preferenceCalls.length} preference API calls applied.</p>}
+        {/* The one status line the chat leaves behind: what the optimizer just did, and the way back. */}
+        {lastChange && (
+          <div role="status" className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-emerald-200 dark:border-emerald-900 bg-emerald-50/80 dark:bg-emerald-950/60 px-4 py-2.5 text-sm text-emerald-900 dark:text-emerald-100">
+            <span className="flex items-center gap-2">
+              <Sparkles className="w-4 h-4 shrink-0" />
+              Calendar rebuilt by CP-SAT · {lastChange.preferenceCalls.length} preference API call{lastChange.preferenceCalls.length === 1 ? '' : 's'} applied.
+            </span>
+            <button
+              type="button"
+              disabled={sending}
+              onClick={undo}
+              className="flex items-center gap-1.5 text-xs font-medium text-emerald-800 dark:text-emerald-200 hover:underline disabled:opacity-50"
+            >
+              <Undo2 className="w-3.5 h-3.5" /> Undo last schedule change
+            </button>
+          </div>
+        )}
         {error && <ErrorNotice error={error} onRetry={recalculate} />}
         {task ? <TaskDetail taskId={task} onBack={() => setTask(null)} /> : <PlanPage onOpenTask={setTask} />}
-        <div className="mt-8 pt-4 border-t border-stone-200 dark:border-stone-800 text-xs text-stone-400 dark:text-stone-600 space-y-2">
-          <p>
-            <button disabled={sending} onClick={onReset} className="underline">{mode === 'demo' ? 'Reset demo' : 'Reload calendar'}</button>
-            {' · '}<button disabled={sending || recalculating} onClick={recalculate} className="underline">{recalculating ? 'Recalculating…' : 'Recalculate'}</button>
-            {lastChange && <> · <button disabled={sending} onClick={undo} className="underline">Undo last schedule change</button></>}
-            {' · '}Demo week: September 12–25, 2026 · {initial.mode === 'openai' ? 'OpenAI + CP-SAT enabled' : 'OpenAI key not configured'} · {mode === 'demo' ? 'Demo session' : 'Preferences saved to MongoDB'}.
-          </p>
+
+        {/* Demo scaffolding, kept to one quiet strip. Everything here is about
+            the harness, not the student's week — it should never compete with
+            the calendar for attention. */}
+        <footer className="mt-8 pt-4 border-t border-stone-200 dark:border-stone-800 space-y-2 text-xs text-stone-500 dark:text-stone-400">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+            <span>Demo week: September 12–25, 2026</span>
+            <span aria-hidden="true" className="text-stone-300 dark:text-stone-700">·</span>
+            <span>{initial.mode === 'openai' ? 'OpenAI + CP-SAT enabled' : 'OpenAI key not configured'}</span>
+            <span aria-hidden="true" className="text-stone-300 dark:text-stone-700">·</span>
+            <span>{isDemo ? 'Demo session · nothing is saved' : 'Preferences saved to MongoDB'}</span>
+            <span className="ml-auto flex items-center gap-1">
+              <button
+                type="button"
+                disabled={sending || recalculating}
+                onClick={recalculate}
+                title="Run the optimizer again with the current preferences"
+                className="flex items-center gap-1.5 rounded-md px-2 py-1 hover:bg-stone-100 dark:hover:bg-stone-800 hover:text-stone-800 dark:hover:text-stone-100 disabled:opacity-50 transition-colors"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${recalculating ? 'animate-spin' : ''}`} />
+                {recalculating ? 'Recalculating…' : 'Recalculate'}
+              </button>
+              <button
+                type="button"
+                disabled={sending}
+                onClick={onReset}
+                className="flex items-center gap-1.5 rounded-md px-2 py-1 hover:bg-stone-100 dark:hover:bg-stone-800 hover:text-stone-800 dark:hover:text-stone-100 disabled:opacity-50 transition-colors"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                {isDemo ? 'Reset demo' : 'Reload calendar'}
+              </button>
+            </span>
+          </div>
           {notice && <details><summary className="cursor-pointer">How your preferences were applied</summary><p className="mt-1">{notice}</p></details>}
           {payload.unplaced?.length > 0 && <details><summary className="cursor-pointer">{payload.unplaced.length} unscheduled or outside-window blocks in the source plan</summary><ul className="mt-1">{payload.unplaced.map(b => <li key={b.id}>{b.title}</li>)}</ul></details>}
-        </div>
+        </footer>
         <ChatSidebar />
       </>}
     </div>
@@ -117,8 +270,34 @@ function DemoShell() {
     preferencesApi.list({ signal: controller.signal }).then(setInitial).catch(e => { if (!controller.signal.aborted) setError(e); });
     return () => controller.abort();
   }, [version]);
-  if (error) return <div className="max-w-xl mx-auto p-8"><UserMenu /><ErrorNotice error={error} onRetry={() => setVersion(v => v + 1)} /></div>;
-  if (!initial) return <p className="p-8 text-stone-500">Loading preferences and building the calendar in the optimizer…</p>;
+  if (error) {
+    return (
+      <div className="max-w-xl mx-auto p-6 sm:p-8 space-y-4">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2.5">
+            <BuddyMark className="w-8 h-8 text-base" />
+            <span className="font-serif text-lg"><BuddyStar /></span>
+          </div>
+          <UserMenu />
+        </div>
+        <ErrorNotice error={error} onRetry={() => setVersion(v => v + 1)} title="Couldn't load your week" />
+      </div>
+    );
+  }
+  if (!initial) {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-6">
+        <div className="text-center buddy-rise">
+          <BuddyMark pulse className="w-12 h-12 text-2xl" />
+          <p className="font-serif text-xl mt-4">Solving your week</p>
+          <p className="text-sm text-stone-500 dark:text-stone-400 mt-1 flex items-center justify-center gap-2">
+            <Spinner className="w-3.5 h-3.5" />
+            Loading your classes and the last solved plan from the optimizer
+          </p>
+        </div>
+      </div>
+    );
+  }
   return <PlanProvider key={version} initialPayload={initial.plan}><ChatProvider><Demo initial={initial} onReset={() => setVersion(v => v + 1)} /></ChatProvider></PlanProvider>;
 }
 

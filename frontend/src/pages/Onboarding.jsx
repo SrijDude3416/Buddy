@@ -119,7 +119,10 @@ export function Onboarding({ onComplete, submitting, submitError, onRetry, initi
 
   return (
     <div className="space-y-4">
-      <p className="font-serif text-lg text-stone-900 dark:text-stone-100 mb-1">Setting up Buddy</p>
+      <div className="flex items-end justify-between gap-3 mb-1">
+        <p className="font-serif text-2xl tracking-tight text-stone-900 dark:text-stone-100">Setting up Buddy</p>
+        <p className="text-xs text-stone-500 dark:text-stone-400 tabular-nums">Question {qIndex + 1} of {QUESTIONS.length}</p>
+      </div>
       <div className="flex items-center gap-1.5 mb-4" aria-label={`Question ${qIndex + 1} of ${QUESTIONS.length}`}>
         {QUESTIONS.map((q, i) => (
           <span
@@ -196,7 +199,7 @@ export function Onboarding({ onComplete, submitting, submitError, onRetry, initi
                     disabled={submitting}
                     onClick={() => (isMulti ? toggleValue(question.id, opt) : handleSingle(question.id, opt))}
                     aria-pressed={selected}
-                    className={`px-3 py-1.5 rounded-full text-sm border transition-colors disabled:opacity-50 ${
+                    className={`px-3.5 py-1.5 rounded-full text-sm border transition-colors disabled:opacity-50 shadow-sm shadow-stone-900/5 ${
                       selected
                         ? 'bg-emerald-700 text-white border-emerald-700'
                         : 'bg-white dark:bg-stone-900 text-stone-700 dark:text-stone-200 border-stone-300 dark:border-stone-700 hover:border-emerald-600'

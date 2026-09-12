@@ -11,7 +11,7 @@
 // ---------------------------------------------------------------------------
 
 import { useMemo, useState } from 'react';
-import { ChevronLeft, ChevronRight, ChevronRight as Arrow } from 'lucide-react';
+import { ChevronLeft, ChevronRight, ChevronRight as Arrow, Gauge } from 'lucide-react';
 import { CalendarView } from '../components/plan/CalendarView.jsx';
 import { ClassLegend } from '../components/plan/ClassLegend.jsx';
 import { PillTabs } from '../components/ui/PillTabs.jsx';
@@ -19,6 +19,7 @@ import { PlanSkeleton } from '../components/ui/Skeleton.jsx';
 import { ErrorNotice } from '../components/ui/ErrorNotice.jsx';
 import { horizonDays } from '../lib/time.js';
 import { itemsForDay } from '../lib/adapters.js';
+import { colorFor } from '../lib/courseColors.js';
 import { usePlan } from '../state/PlanProvider.jsx';
 import { useNow } from '../hooks/useNow.js';
 
@@ -79,16 +80,23 @@ export function PlanPage({ onOpenTask }) {
     <div className="space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h2 className="font-serif text-2xl text-stone-900 dark:text-stone-100">{selectedDay.label}</h2>
-          <p className="text-stone-500 dark:text-stone-400 text-sm mt-1">
-            {selectedItems.length
-              ? `${selectedItems.length} thing${selectedItems.length === 1 ? '' : 's'} · ${Math.round(selectedMinutes / 60 * 10) / 10}h`
-              : 'Nothing on the books'}
+          <h2 className="font-serif text-2xl tracking-tight text-stone-900 dark:text-stone-100">{selectedDay.label}</h2>
+          <p className="text-stone-500 dark:text-stone-400 text-sm mt-1 flex flex-wrap items-center gap-2">
+            <span>
+              {selectedItems.length
+                ? `${selectedItems.length} thing${selectedItems.length === 1 ? '' : 's'} · ${Math.round(selectedMinutes / 60 * 10) / 10}h`
+                : 'Nothing on the books'}
+            </span>
             {optimality && (
-              <>
-                <span className="text-stone-300 dark:text-stone-700"> · </span>
-                <span className="font-semibold text-stone-700 dark:text-stone-200">{optimality}</span>
-              </>
+              // CP-SAT's provable bound, shown as the number a reader wants:
+              // how good this placement is, not how far off it might be.
+              <span
+                title="CP-SAT proves an upper bound on the best possible schedule; this is how close the placed one is to it."
+                className="inline-flex items-center gap-1 rounded-full bg-emerald-50 dark:bg-emerald-950 border border-emerald-200/70 dark:border-emerald-900 px-2 py-0.5 text-xs font-semibold text-emerald-800 dark:text-emerald-200"
+              >
+                <Gauge className="w-3 h-3" aria-hidden="true" />
+                {optimality}
+              </span>
             )}
           </p>
         </div>
@@ -135,31 +143,51 @@ export function PlanPage({ onOpenTask }) {
       </div>
 
       <div>
-        <h3 className="text-sm font-medium text-stone-500 dark:text-stone-400 mb-3">Coming up</h3>
-        <div className="grid gap-2 sm:grid-cols-2">
+        <div className="flex items-baseline justify-between gap-3 mb-3">
+          <h3 className="text-sm font-medium text-stone-500 dark:text-stone-400">Coming up</h3>
+          <p className="text-xs text-stone-400 dark:text-stone-500">Next deadline per class · tap one to see its sessions</p>
+        </div>
+        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
           {[...plan.goals]
             .sort((a, b) => (a.daysAway ?? 999) - (b.daysAway ?? 999))
-            .map((goal) => (
-              <button
-                key={goal.id}
-                type="button"
-                disabled={!goal.nextTaskId}
-                onClick={() => goal.nextTaskId && onOpenTask?.(goal.nextTaskId)}
-                title={goal.nextTaskId ? `Open ${goal.deadlineLabel}` : undefined}
-                className="group text-left bg-white dark:bg-stone-900 border border-stone-200/70 dark:border-stone-800 rounded-xl px-4 py-3 enabled:hover:border-stone-300 dark:enabled:hover:border-stone-700 disabled:cursor-default transition-colors"
-              >
-                <div className="flex items-center justify-between gap-3">
-                  <p className="text-sm font-medium text-stone-900 dark:text-stone-100 truncate">{goal.deadlineLabel}</p>
-                  <span className="flex items-center gap-1 shrink-0 text-xs text-stone-500 dark:text-stone-400">
-                    {goal.dueLabel ?? ''}
-                    {goal.nextTaskId && (
-                      <Arrow className="w-3.5 h-3.5 opacity-0 group-hover:opacity-60 transition-opacity" aria-hidden="true" />
-                    )}
+            .map((goal) => {
+              const color = colorFor(plan.colorMap, goal.id);
+              // Three days out or less reads as urgent; the label itself stays
+              // relative ("in 2 days"), never an absolute date.
+              const soon = goal.daysAway !== null && goal.daysAway <= 3;
+              return (
+                <button
+                  key={goal.id}
+                  type="button"
+                  disabled={!goal.nextTaskId}
+                  onClick={() => goal.nextTaskId && onOpenTask?.(goal.nextTaskId)}
+                  title={goal.nextTaskId ? `Open ${goal.deadlineLabel}` : undefined}
+                  className="group text-left flex bg-white dark:bg-stone-900 border border-stone-200/70 dark:border-stone-800 rounded-xl overflow-hidden shadow-sm shadow-stone-900/5 enabled:hover:border-stone-300 dark:enabled:hover:border-stone-700 disabled:cursor-default transition-colors"
+                >
+                  <span className={`w-1 shrink-0 ${color.rail}`} aria-hidden="true" />
+                  <span className="min-w-0 flex-1 px-3.5 py-3">
+                    <span className="flex items-center justify-between gap-3">
+                      <span className={`text-xs font-medium truncate ${color.subtext}`}>{goal.code ?? goal.title}</span>
+                      <span
+                        className={`shrink-0 text-xs rounded-full px-1.5 py-0.5 ${
+                          soon
+                            ? 'bg-amber-50 dark:bg-amber-950 text-amber-800 dark:text-amber-200'
+                            : 'text-stone-500 dark:text-stone-400'
+                        }`}
+                      >
+                        {goal.dueLabel ?? ''}
+                      </span>
+                    </span>
+                    <span className="flex items-center gap-1 mt-0.5">
+                      <span className="text-sm font-medium text-stone-900 dark:text-stone-100 truncate">{goal.deadlineLabel}</span>
+                      {goal.nextTaskId && (
+                        <Arrow className="w-3.5 h-3.5 shrink-0 text-stone-400 opacity-0 group-hover:opacity-100 transition-opacity" aria-hidden="true" />
+                      )}
+                    </span>
                   </span>
-                </div>
-                <p className="text-xs text-stone-500 dark:text-stone-400 truncate mt-0.5">{goal.title}</p>
-              </button>
-            ))}
+                </button>
+              );
+            })}
           {plan.goals.length === 0 && (
             <p className="text-sm text-stone-400 dark:text-stone-500">Nothing coming up yet.</p>
           )}

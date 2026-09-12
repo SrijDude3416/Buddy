@@ -16,6 +16,63 @@
   }
 }
 
+/* ---------------------------------------------------------------------------
+   Plain CSS on purpose (not @layer utilities): the Next.js app in /buddy imports
+   this file with its own bare Tailwind config, so anything defined in
+   frontend/tailwind.config.js never reaches the demo build. Rules written here
+   are emitted by both.
+   --------------------------------------------------------------------------- */
+
+/* Entrance for a screen or card: a short rise, staggered by class suffix. */
+@keyframes buddy-rise {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.buddy-rise { animation: buddy-rise 0.5s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+.buddy-rise-2 { animation-delay: 0.08s; }
+.buddy-rise-3 { animation-delay: 0.16s; }
+.buddy-rise-4 { animation-delay: 0.24s; }
+
+/* Sign-in backdrop: a faint dot grid with an emerald glow at the top. Quiet
+   enough to sit behind serif type, present enough that the page isn't a void. */
+.buddy-backdrop {
+  background-image:
+    radial-gradient(60% 45% at 50% 0%, rgba(16, 185, 129, 0.16), transparent 70%),
+    radial-gradient(rgba(120, 113, 108, 0.16) 1px, transparent 1px);
+  background-size: 100% 100%, 22px 22px;
+}
+.dark .buddy-backdrop {
+  background-image:
+    radial-gradient(60% 45% at 50% 0%, rgba(16, 185, 129, 0.14), transparent 70%),
+    radial-gradient(rgba(168, 162, 158, 0.11) 1px, transparent 1px);
+}
+
+/* The wordmark's rolling word: the outgoing word lifts out, the incoming one
+   rises in, and the container's width eases so "Buddy" glides instead of
+   jumping. The container clips, so a word wider than the eased width is
+   revealed as the width catches up rather than painted over "Buddy". Width is
+   measured in Brand.jsx; this only owns the motion. */
+.buddy-word-roll {
+  overflow: hidden;
+  /* Extra clip room above and below the line box, cancelled by matching
+     negative margins so nothing moves: descenders (y, Q) and tall ascenders
+     otherwise get shaved by the clip. */
+  padding: 0.12em 0 0.24em;
+  margin: -0.12em 0 -0.24em;
+  transition: width 0.45s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.buddy-word { transition: opacity 0.3s ease, transform 0.5s cubic-bezier(0.2, 0.8, 0.2, 1); }
+.buddy-word-in { opacity: 1; transform: translateY(0); }
+.buddy-word-out { opacity: 0; transform: translateY(-0.7em); }
+.buddy-word-wait { opacity: 0; transform: translateY(0.7em); }
+
+/* A soft pulse for the logo mark while the optimizer is working. */
+@keyframes buddy-breathe {
+  0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.35); }
+  50% { transform: scale(1.04); box-shadow: 0 0 0 10px rgba(16, 185, 129, 0); }
+}
+.buddy-breathe { animation: buddy-breathe 1.8s ease-in-out infinite; }
+
 /* Respect a reduced-motion preference — the generating screen animates a lot. */
 @media (prefers-reduced-motion: reduce) {
   *,

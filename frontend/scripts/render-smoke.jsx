@@ -75,6 +75,7 @@ const withProviders = (children) => (
 
 const plan = toPlanView(payload);
 const days = horizonDays(7);
+const now = new Date();
 
 console.log('\nauth surfaces');
 // App now renders the gate first; the session request is in flight on first paint,
@@ -85,7 +86,7 @@ renders('gate shows nothing decision-shaped while loading', <span>{String(!appHt
 renders(
   'SignIn screen',
   <ThemeProvider><AuthProvider><SignIn /></AuthProvider></ThemeProvider>,
-  ['Buddy', 'demo student', 'dummy data'],
+  ['Buddy', 'Get started', 'Demo', 'Nothing you do here is saved'],
 );
 renders('UserMenu with no user renders nothing', <ThemeProvider><AuthProvider><UserMenu /></AuthProvider></ThemeProvider>, []);
 
@@ -105,10 +106,10 @@ renders('TaskDetail (missing task)', withProviders(<TaskDetail taskId="nope" onB
 renders('ChatSidebar', withProviders(<ChatSidebar />), ['Message Buddy']);
 
 console.log('\nnew layout pieces');
-renders('CalendarView (week)', withProviders(<CalendarView plan={plan} days={days} selectedOffset={0} onSelectDay={() => {}} onOpenTask={() => {}} />), ['progressbar'].slice(0, 0).concat(['AM']));
-renders('CalendarView (single day)', withProviders(<CalendarView plan={plan} days={days.slice(0, 1)} selectedOffset={0} onSelectDay={() => {}} onOpenTask={() => {}} />), ['Today']);
+renders('CalendarView (week)', withProviders(<CalendarView plan={plan} days={days} selectedOffset={0} onSelectDay={() => {}} onOpenTask={() => {}} now={now} />), ['progressbar'].slice(0, 0).concat(['AM']));
+renders('CalendarView (single day)', withProviders(<CalendarView plan={plan} days={days.slice(0, 1)} selectedOffset={0} onSelectDay={() => {}} onOpenTask={() => {}} now={now} />), ['Today']);
 renders('GoalSwimlanes (rows are goals)', withProviders(<GoalSwimlanes plan={plan} offset={0} dayLabel="Today" onOpenTask={() => {}} />), [plan.goals[0].code, 'under the class they serve']);
-renders('ClassLegend', withProviders(<ClassLegend plan={plan} selectedOffset={0} dayLabel="Today" />), ['Your classes', plan.goals[0].code, 'class time', 'ask Buddy']);
+renders('ClassLegend', withProviders(<ClassLegend plan={plan} offsets={[0, 1, 2, 3, 4, 5, 6]} periodLabel="this week" now={now} />), ['Your classes', plan.goals[0].code, 'class time', 'ask Buddy']);
 renders('ThemeToggle', withProviders(<ThemeToggle />), ['Light', 'Dark', 'System']);
 renders(
   'CourseSelect (closed)',
@@ -122,9 +123,9 @@ renders(
 );
 
 console.log('\ntheming');
-const legendHtml = renderToString(withProviders(<ClassLegend plan={plan} selectedOffset={0} dayLabel="Today" />));
+const legendHtml = renderToString(withProviders(<ClassLegend plan={plan} offsets={[0, 1, 2, 3, 4, 5, 6]} periodLabel="this week" now={now} />));
 renders('legend declares dark variants', <span>{String(/dark:/.test(legendHtml))}</span>, ['true']);
-const calHtml = renderToString(withProviders(<CalendarView plan={plan} days={days} selectedOffset={0} onSelectDay={() => {}} onOpenTask={() => {}} />));
+const calHtml = renderToString(withProviders(<CalendarView plan={plan} days={days} selectedOffset={0} onSelectDay={() => {}} onOpenTask={() => {}} now={now} />));
 renders('calendar declares dark variants', <span>{String(/dark:/.test(calHtml))}</span>, ['true']);
 renders(
   'every class color appears in the calendar',

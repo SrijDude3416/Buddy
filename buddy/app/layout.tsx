@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Buddy | Schedule optimizer",
-  description: "Turn student feedback into structured schedule changes",
+  title: "Buddy",
+  description: "Your semester, solved by math you can talk to.",
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
