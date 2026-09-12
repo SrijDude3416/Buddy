@@ -27,7 +27,10 @@ test('OpenAI calls existing preference tools, Python receives saved state, and o
       return json(aiResponse());
     }
     assert.ok(String(input).endsWith('/preferences/operations'));
-    assert.deepEqual(body, { preferences: [], operations: [call], course_ids: ['c1'] });
+    // `courses` echoes the plan's own courses back so a course the caller supplied
+    // (a student's picked lecture section) survives this second solve.
+    assert.deepEqual(body, { preferences: [], operations: [call], course_ids: ['c1'],
+      courses: [{ id: 'c1', name: 'Course', meeting_times: [] }] });
     return json(rebuilt);
   });
 });

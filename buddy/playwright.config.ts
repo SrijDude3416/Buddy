@@ -10,6 +10,9 @@ export default defineConfig({
     { command: 'node tests/support/openai-server.mjs', url: 'http://127.0.0.1:8102', reuseExistingServer: false },
     { command: `"${python}" -m uvicorn api:app --app-dir ../backend/optimizer --host 127.0.0.1 --port 8101`, url: 'http://127.0.0.1:8101/health', timeout: 90000, reuseExistingServer: false, env: { BUDDY_SOLVE_SECONDS: '3', PYTHONPYCACHEPREFIX: '/tmp/buddy-test-pycache' } },
     { command: 'npm run build && npm run start -- --port 3101', url: 'http://localhost:3101', timeout: 120000, reuseExistingServer: false,
-      env: { OPENAI_API_KEY: 'test-fixture', OPENAI_BASE_URL: 'http://127.0.0.1:8102/v1', FASTAPI_BASE_URL: 'http://127.0.0.1:8101' } },
+      // The suite drives the calendar, not the sign-in screen. `npm start` runs
+      // NODE_ENV=production, where missing Google credentials deliberately fail
+      // closed, so the demo bypass is what keeps these tests testing the app.
+      env: { OPENAI_API_KEY: 'test-fixture', OPENAI_BASE_URL: 'http://127.0.0.1:8102/v1', FASTAPI_BASE_URL: 'http://127.0.0.1:8101', BUDDY_ALLOW_DEMO: '1' } },
   ],
 });

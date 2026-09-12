@@ -8,10 +8,13 @@ import { ThemeToggle } from '../components/ui/ThemeToggle.jsx';
 import { isMock } from '../lib/config.js';
 
 export function SignIn() {
-  const { signIn, authError, clearAuthError } = useAuth();
+  const { signIn, mode, authError, clearAuthError } = useAuth();
+  // The server told us it has no Google credentials. Showing "Continue with CMU"
+  // here would just bounce the person back with an error — say so instead.
+  const unconfigured = mode === 'unconfigured';
 
   return (
-    <div className="min-h-screen bg-stone-100 dark:bg-stone-950 flex flex-col items-center justify-center p-6">
+    <div className="min-h-screen bg-stone-50 dark:bg-stone-950 flex flex-col items-center justify-center p-6">
       <div className="absolute top-4 right-4">
         <ThemeToggle />
       </div>
@@ -46,16 +49,19 @@ export function SignIn() {
         <button
           type="button"
           onClick={signIn}
-          className="w-full flex items-center justify-center gap-2.5 py-3 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white font-medium transition-colors"
+          disabled={unconfigured}
+          className="w-full flex items-center justify-center gap-2.5 py-3 rounded-lg bg-emerald-700 enabled:hover:bg-emerald-800 disabled:opacity-40 disabled:cursor-not-allowed text-white font-medium transition-colors"
         >
           <LogIn className="w-4 h-4" />
           {isMock() ? 'Continue as a demo student' : 'Continue with CMU'}
         </button>
 
         <p className="text-xs text-stone-400 dark:text-stone-500 text-center">
-          {isMock()
-            ? 'Running on dummy data — no account needed. Set VITE_API_MODE=live for real CMU sign-in.'
-            : 'Restricted to andrew.cmu.edu accounts. Buddy never sees your password.'}
+          {unconfigured
+            ? 'Sign-in is not configured on this deployment. Set GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET and SESSION_SECRET, or BUDDY_ALLOW_DEMO=1 to run the no-login demo.'
+            : isMock()
+              ? 'Running on dummy data — no account needed. Set VITE_API_MODE=live for real CMU sign-in.'
+              : 'Restricted to andrew.cmu.edu accounts. Buddy never sees your password.'}
         </p>
       </div>
     </div>

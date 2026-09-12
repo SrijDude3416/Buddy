@@ -5,7 +5,7 @@ import { LogOut } from 'lucide-react';
 import { useAuth } from '../../state/AuthProvider.jsx';
 
 export function UserMenu() {
-  const { user, signOut } = useAuth();
+  const { user, mode, signOut } = useAuth();
   const [open, setOpen] = useState(false);
   const wrapRef = useRef(null);
 
@@ -43,13 +43,22 @@ export function UserMenu() {
             <p className="text-sm font-medium text-stone-900 dark:text-stone-100 truncate">{user.name}</p>
             <p className="text-xs text-stone-500 dark:text-stone-400 truncate">{user.email}</p>
           </div>
-          <button
-            type="button"
-            onClick={signOut}
-            className="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-stone-700 dark:text-stone-200 hover:bg-stone-100 dark:hover:bg-stone-800"
-          >
-            <LogOut className="w-4 h-4" /> Sign out
-          </button>
+          {/* In demo mode the session route hands back the demo student
+              regardless of cookies, so a "Sign out" here would clear a cookie
+              and change nothing on the next load. Say what is true instead. */}
+          {mode === 'demo' ? (
+            <p className="px-3 py-2.5 text-xs text-stone-500 dark:text-stone-400">
+              Demo mode — CMU sign-in isn&apos;t configured on this deployment.
+            </p>
+          ) : (
+            <button
+              type="button"
+              onClick={signOut}
+              className="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-stone-700 dark:text-stone-200 hover:bg-stone-100 dark:hover:bg-stone-800"
+            >
+              <LogOut className="w-4 h-4" /> Sign out
+            </button>
+          )}
         </div>
       )}
     </div>

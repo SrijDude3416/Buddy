@@ -9,6 +9,7 @@ import { coursesApi } from '../lib/api/index.js';
 import { useRequest } from '../hooks/useRequest.js';
 import { BotBubble, UserBubble } from '../components/chat/Bubbles.jsx';
 import { CourseSelect } from '../components/ui/CourseSelect.jsx';
+import { SectionPicker } from '../components/ui/SectionPicker.jsx';
 import { Spinner } from '../components/ui/Spinner.jsx';
 import { ErrorNotice } from '../components/ui/ErrorNotice.jsx';
 
@@ -22,6 +23,55 @@ export function Onboarding({ onComplete, submitting, submitError, onRetry, initi
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const courses = catalog.data?.courses ?? [];
+  const catalogSource = catalog.data?.source;
+
+  // Pre-selected classes come from the server and may predate the current catalog —
+  // an id that isn't in it reads as "6 classes selected" with no chips to remove.
+  // Drop those once the catalog resolves so the count and the chips always agree.
+  useEffect(() => {
+    if (!catalog.isSuccess) return;
+    const ids = new Set(courses.map((c) => c._id));
+    setAnswers((prev) => {
+      const selected = prev.classes ?? [];
+      const kept = selected.filter((id) => ids.has(id));
+      return kept.length === selected.length ? prev : { ...prev, classes: kept };
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [catalog.isSuccess, courses]);
+
+  const selectedIds = answers.classes ?? [];
+  const selectedCourses = selectedIds.map((id) => courses.find((c) => c._id === id)).filter(Boolean);
+
+  // A course offering exactly one lecture (or one recitation) isn't a choice, but
+  // the plan still needs to know it's the one — resolve those silently so the user
+  // only ever sees the sections that genuinely fork.
+  useEffect(() => {
+    if (!selectedCourses.length) return;
+    setAnswers((prev) => {
+      const sections = { ...(prev.sections ?? {}) };
+      let changed = false;
+      for (const course of selectedCourses) {
+        const current = sections[course._id] ?? {};
+        const next = { ...current };
+        for (const kind of ['lecture', 'recitation']) {
+          const options = course[kind] ?? [];
+          const stillValid = options.some((s) => s.id === current[kind]);
+          if (options.length === 1) {
+            if (next[kind] !== options[0].id) { next[kind] = options[0].id; changed = true; }
+          } else if (current[kind] && !stillValid) {
+            delete next[kind]; changed = true;
+          }
+        }
+        if (changed) sections[course._id] = next;
+      }
+      // Drop section choices for classes no longer selected.
+      for (const id of Object.keys(sections)) {
+        if (!selectedIds.includes(id)) { delete sections[id]; changed = true; }
+      }
+      return changed ? { ...prev, sections } : prev;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [courses, selectedIds.join(',')]);
 
   const question = QUESTIONS[qIndex];
   const answeredSoFar = QUESTIONS.slice(0, qIndex);
@@ -52,7 +102,20 @@ export function Onboarding({ onComplete, submitting, submitError, onRetry, initi
     setAnswers((prev) => ({ ...prev, [qid]: (prev[qid] ?? []).filter((v) => v !== value) }));
   }
 
-  const selectedIds = answers.classes ?? [];
+  function selectSection(courseId, kind, sectionId) {
+    setAnswers((prev) => ({
+      ...prev,
+      sections: { ...(prev.sections ?? {}), [courseId]: { ...(prev.sections?.[courseId] ?? {}), [kind]: sectionId } },
+    }));
+  }
+
+  // Every fork the student hasn't resolved yet. Continue waits on these: a plan
+  // built from the wrong lecture is worse than one that made you pick.
+  const unresolved = selectedCourses.filter((course) =>
+    ['lecture', 'recitation'].some(
+      (kind) => (course[kind] ?? []).length > 1 && !answers.sections?.[course._id]?.[kind],
+    ),
+  );
 
   return (
     <div className="space-y-4">
@@ -83,23 +146,42 @@ export function Onboarding({ onComplete, submitting, submitError, onRetry, initi
             {catalog.isError ? (
               <ErrorNotice error={catalog.error} onRetry={() => catalog.run()} title="Couldn't load the course catalog" />
             ) : (
-              <CourseSelect
-                courses={courses}
-                selectedIds={selectedIds}
-                onToggle={(id) => toggleValue('classes', id)}
-                onRemove={(id) => removeValue('classes', id)}
-                loading={catalog.isLoading}
-                disabled={submitting}
-              />
+              <>
+                <CourseSelect
+                  courses={courses}
+                  selectedIds={selectedIds}
+                  onToggle={(id) => toggleValue('classes', id)}
+                  onRemove={(id) => removeValue('classes', id)}
+                  loading={catalog.isLoading}
+                  disabled={submitting}
+                />
+                {/* The catalog has a live source; say so when it isn't the real one. */}
+                {catalogSource && catalogSource !== 'mongodb' && (
+                  <p className="text-xs text-stone-500 dark:text-stone-400">
+                    Showing the built-in class list — the Atlas course catalog isn&apos;t reachable.
+                  </p>
+                )}
+                <SectionPicker
+                  courses={selectedCourses}
+                  selections={answers.sections ?? {}}
+                  onSelect={selectSection}
+                  disabled={submitting}
+                />
+              </>
             )}
             <button
               type="button"
               onClick={() => advance(answers)}
-              disabled={!selectedIds.length || submitting}
+              disabled={!selectedIds.length || unresolved.length > 0 || submitting}
               className="flex items-center gap-1 px-4 py-2 rounded-lg bg-emerald-700 text-white text-sm disabled:opacity-40"
             >
               Continue <ChevronRight className="w-4 h-4" />
             </button>
+            {unresolved.length > 0 && (
+              <p className="text-xs text-stone-500 dark:text-stone-400">
+                Pick a section for {unresolved.map((c) => c.code).join(', ')} to continue.
+              </p>
+            )}
           </div>
         ) : (
           <>

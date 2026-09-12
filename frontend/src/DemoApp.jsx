@@ -3,12 +3,16 @@ import { MessageCircle } from 'lucide-react';
 import { ThemeProvider } from './state/ThemeProvider.jsx';
 import { PlanProvider, usePlan } from './state/PlanProvider.jsx';
 import { ChatProvider, useChat } from './state/ChatProvider.jsx';
+import { AuthProvider, useAuth } from './state/AuthProvider.jsx';
 import { preferencesApi, planApi } from './lib/api/index.js';
 import { Onboarding } from './pages/Onboarding.jsx';
 import { PlanPage } from './pages/PlanPage.jsx';
 import { TaskDetail } from './pages/TaskDetail.jsx';
+import { SignIn } from './pages/SignIn.jsx';
 import { ChatSidebar } from './components/chat/ChatSidebar.jsx';
 import { ThemeToggle } from './components/ui/ThemeToggle.jsx';
+import { UserMenu } from './components/ui/UserMenu.jsx';
+import { Spinner } from './components/ui/Spinner.jsx';
 import { ErrorNotice } from './components/ui/ErrorNotice.jsx';
 
 function Demo({ initial, onReset }) {
@@ -59,7 +63,7 @@ function Demo({ initial, onReset }) {
     <div className={phase === 'calendar' ? 'max-w-6xl mx-auto' : 'max-w-xl mx-auto py-10'}>
       <header className="flex items-center justify-between gap-3 mb-6">
         <div><h1 className="font-serif text-3xl">Buddy</h1><p className="text-sm text-stone-500">A study plan that listens.</p></div>
-        <div className="flex items-center gap-2"><ThemeToggle />{phase === 'calendar' && <button type="button" onClick={toggle} className="flex gap-2 items-center rounded-lg bg-emerald-700 text-white px-3 py-2" aria-label="Open chat with Buddy"><MessageCircle className="w-4 h-4" />Ask Buddy</button>}</div>
+        <div className="flex items-center gap-2"><ThemeToggle /><UserMenu />{phase === 'calendar' && <button type="button" onClick={toggle} className="flex gap-2 items-center rounded-lg bg-emerald-700 text-white px-3 py-2" aria-label="Open chat with Buddy"><MessageCircle className="w-4 h-4" />Ask Buddy</button>}</div>
       </header>
       {phase === 'welcome' && <section className="space-y-5">
         <h2 className="font-serif text-2xl">Start with your demo week</h2>
@@ -76,25 +80,33 @@ function Demo({ initial, onReset }) {
       </section>}
       {phase === 'onboarding' && <Onboarding initialAnswers={answers} onComplete={confirm} submitting={busy} submitError={error} onRetry={() => confirm(answers)} />}
       {phase === 'calendar' && <>
-        <div className="mb-4 text-xs text-stone-500 space-y-2">
-          <p>Demo week: September 12–25, 2026 · {initial.mode === 'openai' ? 'OpenAI + CP-SAT enabled' : 'OpenAI key not configured'} · Changes stay in this tab.</p>
-          {notice && <details><summary className="cursor-pointer">How your preferences were applied</summary><p className="mt-1">{notice}</p></details>}
-          <button disabled={sending} onClick={onReset} className="underline mr-4">Reset demo</button>
-          <button disabled={sending || recalculating} onClick={recalculate} className="underline mr-4">{recalculating ? 'Recalculating…' : 'Recalculate'}</button>
-          {lastChange && <button disabled={sending} onClick={undo} className="underline text-emerald-700 dark:text-emerald-300">Undo last schedule change</button>}
-        </div>
-        {lastChange && <p role="status" className="mb-4 p-3 rounded-lg bg-emerald-50 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-200 text-sm">Calendar rebuilt by CP-SAT · {lastChange.preferenceCalls.length} preference API calls applied.</p>}
-        {payload.run?.engine === 'CP-SAT' && <p className="text-xs text-stone-500 mb-4">Optimizer: {payload.run.solverStatus} · {payload.run.solve_seconds?.toFixed(1)}s solve time{payload.run.gap != null ? ` · ${(payload.run.gap * 100).toFixed(1)}% objective bound gap` : ''}</p>}
+        {/* Demo scaffolding, kept to one quiet line. Everything here is about the
+            harness, not the student's week — it should never compete with the
+            calendar for attention. */}
+        {lastChange && <p role="status" className="mb-4 px-3 py-2 rounded-lg bg-emerald-50/70 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-200 text-sm">Calendar rebuilt by CP-SAT · {lastChange.preferenceCalls.length} preference API calls applied.</p>}
         {error && <ErrorNotice error={error} onRetry={recalculate} />}
         {task ? <TaskDetail taskId={task} onBack={() => setTask(null)} /> : <PlanPage onOpenTask={setTask} />}
-        {payload.unplaced?.length > 0 && <details className="mt-6 text-sm text-stone-500"><summary className="cursor-pointer">{payload.unplaced.length} unscheduled or outside-window blocks in the source plan</summary><ul className="mt-2">{payload.unplaced.map(b => <li key={b.id}>{b.title}</li>)}</ul></details>}
+        <div className="mt-8 pt-4 border-t border-stone-200 dark:border-stone-800 text-xs text-stone-400 dark:text-stone-600 space-y-2">
+          <p>
+            <button disabled={sending} onClick={onReset} className="underline">Reset demo</button>
+            {' · '}<button disabled={sending || recalculating} onClick={recalculate} className="underline">{recalculating ? 'Recalculating…' : 'Recalculate'}</button>
+            {lastChange && <> · <button disabled={sending} onClick={undo} className="underline">Undo last schedule change</button></>}
+            {' · '}Demo week: September 12–25, 2026 · {initial.mode === 'openai' ? 'OpenAI + CP-SAT enabled' : 'OpenAI key not configured'} · changes stay in this tab.
+          </p>
+          {notice && <details><summary className="cursor-pointer">How your preferences were applied</summary><p className="mt-1">{notice}</p></details>}
+          {payload.unplaced?.length > 0 && <details><summary className="cursor-pointer">{payload.unplaced.length} unscheduled or outside-window blocks in the source plan</summary><ul className="mt-1">{payload.unplaced.map(b => <li key={b.id}>{b.title}</li>)}</ul></details>}
+        </div>
         <ChatSidebar />
       </>}
     </div>
   </main>;
 }
 
-export default function DemoApp() {
+/**
+ * The signed-in app. Mounted only past the gate, which is the point: the first
+ * preferences/optimizer call cannot fire before we know who is asking.
+ */
+function DemoShell() {
   const [initial, setInitial] = useState(null);
   const [error, setError] = useState(null);
   const [version, setVersion] = useState(0);
@@ -104,5 +116,36 @@ export default function DemoApp() {
     preferencesApi.list({ signal: controller.signal }).then(setInitial).catch(e => { if (!controller.signal.aborted) setError(e); });
     return () => controller.abort();
   }, [version]);
-  return <ThemeProvider>{error ? <div className="max-w-xl mx-auto p-8"><ErrorNotice error={error} onRetry={() => setVersion(v => v + 1)} /></div> : !initial ? <p className="p-8 text-stone-500">Loading preferences and building the calendar in the optimizer…</p> : <PlanProvider key={version} initialPayload={initial.plan}><ChatProvider><Demo initial={initial} onReset={() => setVersion(v => v + 1)} /></ChatProvider></PlanProvider>}</ThemeProvider>;
+  if (error) return <div className="max-w-xl mx-auto p-8"><ErrorNotice error={error} onRetry={() => setVersion(v => v + 1)} /></div>;
+  if (!initial) return <p className="p-8 text-stone-500">Loading preferences and building the calendar in the optimizer…</p>;
+  return <PlanProvider key={version} initialPayload={initial.plan}><ChatProvider><Demo initial={initial} onReset={() => setVersion(v => v + 1)} /></ChatProvider></PlanProvider>;
+}
+
+/**
+ * The auth gate. Nothing decision-shaped renders until /api/auth/session
+ * answers, so a signed-in user never sees a flash of the sign-in screen and a
+ * signed-out one never sees a half-loaded calendar.
+ *
+ * When the deployment runs in demo mode (BUDDY_ALLOW_DEMO=1, or a dev machine
+ * with no Google credentials) that route hands back a fixed demo student and
+ * this gate passes straight through — which is what keeps the zero-config
+ * walkthrough, and the Playwright suite, working exactly as before.
+ */
+function Gate() {
+  const { status, error, refresh } = useAuth();
+
+  if (status === 'loading') {
+    return <div className="min-h-screen flex items-center justify-center"><Spinner className="w-5 h-5 text-stone-400" /></div>;
+  }
+  // Reaching the API failed outright — different from being signed out, and a
+  // sign-in button here would just fail the same way.
+  if (status === 'error') {
+    return <div className="min-h-screen flex items-center justify-center p-6"><div className="w-full max-w-sm"><ErrorNotice error={error} onRetry={refresh} title="Can't reach Buddy" /></div></div>;
+  }
+  if (status !== 'signedIn') return <SignIn />;
+  return <DemoShell />;
+}
+
+export default function DemoApp() {
+  return <ThemeProvider><AuthProvider><Gate /></AuthProvider></ThemeProvider>;
 }

@@ -35,6 +35,9 @@ function consumeAuthParams() {
 export function AuthProvider({ children }) {
   const [status, setStatus] = useState('loading'); // loading | signedIn | signedOut | error
   const [user, setUser] = useState(null);
+  // 'oauth' | 'demo' | 'unconfigured' — what the server says it can actually do.
+  // Defaults to 'oauth' so a backend that doesn't report it behaves as before.
+  const [mode, setMode] = useState('oauth');
   const [error, setError] = useState(null);
   // A message from the OAuth round trip, e.g. a non-CMU account being refused.
   const [authError, setAuthError] = useState(() => consumeAuthParams().error);
@@ -42,8 +45,9 @@ export function AuthProvider({ children }) {
   const check = useCallback(async () => {
     setError(null);
     try {
-      const { user: nextUser } = await authApi.session();
+      const { user: nextUser, auth_mode: nextMode } = await authApi.session();
       setUser(nextUser);
+      if (nextMode) setMode(nextMode);
       setStatus(nextUser ? 'signedIn' : 'signedOut');
     } catch (err) {
       if (isAborted(err)) return;
@@ -82,6 +86,7 @@ export function AuthProvider({ children }) {
     () => ({
       status,
       user,
+      mode,
       error,
       authError,
       clearAuthError: () => setAuthError(null),
@@ -91,7 +96,7 @@ export function AuthProvider({ children }) {
       signOut,
       refresh: check,
     }),
-    [status, user, error, authError, signIn, signOut, check],
+    [status, user, mode, error, authError, signIn, signOut, check],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

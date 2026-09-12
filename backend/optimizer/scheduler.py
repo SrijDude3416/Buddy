@@ -138,6 +138,21 @@ def build_and_solve(
                 )
                 course_lecture_ends.setdefault(course.id, []).append(e)
 
+    # Course blocks are already materialized above, and both they and the
+    # routine blocks below are CONSTANT intervals. AddNoOverlap over two
+    # constants that overlap doesn't shift one out of the way -- it makes the
+    # entire model infeasible, exactly the trap this file's NOTE above
+    # describes for the old working-hours blackout. That stayed invisible while
+    # courses came from test-data (hand-chosen never to clash with the routine)
+    # and became reachable the moment real catalog class times arrived: a
+    # 12:00-13:20 lecture against a 12:00-12:45 lunch lost the whole schedule,
+    # not the lunch. A class is the genuinely immovable one of the pair, so the
+    # routine block yields to it.
+    course_spans = [(b.start, b.end) for b in placed_fixed]
+
+    def clashes_with_class(start_dt, end_dt) -> bool:
+        return any(start_dt < c_end and c_start < end_dt for c_start, c_end in course_spans)
+
     # --- Personal routine blocks (gym, meals, ...): immovable the same way a
     # class is, just not tied to a course. Not a `courses.meeting_times` --
     # this is what CLAUDE.md's onboarding "outside commitments" question is
@@ -150,6 +165,8 @@ def build_and_solve(
                 continue
             start_dt = datetime.combine(date, time.fromisoformat(block.start_time), tzinfo=window_start.tzinfo)
             end_dt = datetime.combine(date, time.fromisoformat(block.end_time), tzinfo=window_start.tzinfo)
+            if clashes_with_class(start_dt, end_dt):
+                continue  # you can't be at the gym while you're in a lecture
             s, e = slot_of(start_dt), slot_of(end_dt)
             iv = model.NewIntervalVar(s, e - s, e, f"routine_{i}_{day}")
             all_intervals.append(iv)

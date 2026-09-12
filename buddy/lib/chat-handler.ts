@@ -28,7 +28,12 @@ async function runChat(body: ChatBody, signal: AbortSignal, update: (event: Upda
   let preferenceCalls: Awaited<ReturnType<typeof applyPreferenceCalls>>['preference_calls'] = [];
   if (interpreted.preferenceCalls.length) {
     update({ type: 'status', stage: 'scheduling', message: `Applying ${interpreted.preferenceCalls.length} preference API calls and rebuilding your schedule in CP-SAT…` });
-    const result = await applyPreferenceCalls(body.plan.preferences, interpreted.preferenceCalls, body.plan.courses.map(c => c._id), signal);
+    // Hand every course straight back. Ones the optimizer loaded itself are
+    // overridden with identical data (a no-op); ones the caller supplied — a
+    // student's own lecture section — would otherwise be unknown to it on this
+    // second solve, and their class blocks would drop off the calendar.
+    const courses = body.plan.courses.map(c => ({ id: c._id, name: c.name, meeting_times: c.meeting_times ?? [] }));
+    const result = await applyPreferenceCalls(body.plan.preferences, interpreted.preferenceCalls, body.plan.courses.map(c => c._id), signal, courses);
     signal.throwIfAborted();
     plan = result.plan;
     preferenceCalls = result.preference_calls;

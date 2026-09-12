@@ -48,10 +48,10 @@ function Lane({ row, startHour, endHour, colorMap, onOpenTask }) {
                 key={item.id}
                 style={style}
                 title={`${item.action} · ${item.timeLabel} · can't be moved`}
-                className="absolute top-1 bottom-1 rounded bg-stone-700 dark:bg-stone-700 flex items-center gap-1 px-1 overflow-hidden"
+                className={`absolute top-1 bottom-1 rounded border flex items-center gap-1 px-1 overflow-hidden ${color.strongTint} ${color.strongBorder}`}
               >
-                <Lock className="w-2.5 h-2.5 text-stone-300 shrink-0" />
-                <span className="text-[10px] text-stone-100 truncate">{item.action}</span>
+                <Lock className={`w-2.5 h-2.5 shrink-0 opacity-50 ${color.strongSubtext}`} />
+                <span className={`text-[10px] truncate ${color.strongText}`}>{item.action}</span>
               </div>
             );
           }

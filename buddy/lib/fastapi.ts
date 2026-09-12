@@ -27,8 +27,13 @@ export async function optimizerApi(path: string, init?: RequestInit) {
   return body;
 }
 export const getDefaultPreferences = async (signal?: AbortSignal) => BatchResult.parse(await optimizerApi('/preferences/defaults', { signal }));
-export const applyPreferenceCalls = async (preferences: PreferenceCall[], operations: PreferenceCall[], course_ids: string[], signal?: AbortSignal) => BatchResult.parse(await optimizerApi('/preferences/operations', {
-  method: 'POST', body: JSON.stringify({ preferences, operations, course_ids }), signal,
+/** A course supplied by the caller, with the meeting times of the student's own section. */
+export type CourseOverride = { id: string; name: string; meeting_times: { days: string[]; start_time: string; end_time: string; location: string | null }[] };
+export const applyPreferenceCalls = async (preferences: PreferenceCall[], operations: PreferenceCall[], course_ids: string[], signal?: AbortSignal, courses?: CourseOverride[]) => BatchResult.parse(await optimizerApi('/preferences/operations', {
+  // `courses` is omitted rather than sent empty: the endpoint forbids unknown
+  // fields loosely but treats null and [] the same, and omitting keeps the
+  // request identical to what it was before sections existed.
+  method: 'POST', body: JSON.stringify({ preferences, operations, course_ids, ...(courses?.length ? { courses } : {}) }), signal,
 }));
 
 // Compatibility for the original optional run-polling routes.

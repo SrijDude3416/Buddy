@@ -22,7 +22,8 @@ running optimizer, set `FASTAPI_BASE_URL` in the shell before running the comman
 The Next.js server also reads that URL from `buddy/.env.local`.
 
 For a production local demo: `npm run build`, then `npm start -- --port 3100`.
-Auth and Canvas are still not required. MongoDB now **is** used when reachable,
+Canvas is still not required, and sign-in is optional for the demo (see
+"Sign in with CMU" below). MongoDB now **is** used when reachable,
 for two different things:
 - Courses/tasks: the Python optimizer reads these from the real Atlas cluster
   (credentials in `backend/.env.local` — see "MongoDB" below) instead of the
@@ -67,12 +68,108 @@ already uses. One-time setup:
 No seeding step needed for preferences/run history — those write themselves the
 first time you use the demo (`backend/optimizer/mongo_state.py`, wired into
 `preference_pipeline.py`). There is one implicit demo user (`"demo-carlos"`,
-same as the seeded courses/tasks) since the running demo has no auth — a real
-per-account version keys these by a real `user_id` instead.
+same as the seeded courses/tasks): sign-in gates who reaches the app, but the
+optimizer's own state is not yet keyed per account — a real per-account version
+keys these by a real `user_id` instead.
 
 See `backend/optimizer/mongo_loader.py` / `seed_mongo.py` (courses/tasks) and
 `mongo_state.py` (preferences/optimizer_runs) for the field mapping and exactly
 what is (and isn't) read from/written to Mongo.
+
+## Sign in with CMU (Google OAuth)
+
+CMU Andrew accounts are Google Workspace accounts, so Google OAuth restricted to
+the `andrew.cmu.edu` hosted domain authenticates against CMU's own directory. No
+CMU service-provider registration, and Buddy never sees a password.
+
+Sign-in has three modes, decided by `buddy/lib/auth/env.ts`:
+
+| Google credentials | `NODE_ENV` | Mode | Behaviour |
+|---|---|---|---|
+| set | any | `oauth` | Real gate. Only allowed domains get in. |
+| missing | development | `demo` | Zero-config walkthrough: one fixed demo student, no login. |
+| missing | production | `unconfigured` | **Fails closed.** Sign-in screen explains what is missing. |
+
+`BUDDY_ALLOW_DEMO=1` forces `demo` even with credentials set — used by the
+Playwright suite and for demoing offline. The production row is the important
+one: a deploy that loses its env vars must not silently sign everyone in.
+
+To turn on real sign-in, fill these into `buddy/.env.local` (all documented in
+`buddy/.env.example`):
+
+```bash
+GOOGLE_CLIENT_ID=...apps.googleusercontent.com
+GOOGLE_CLIENT_SECRET=...
+SESSION_SECRET=$(openssl rand -base64 48)
+OAUTH_REDIRECT_URI=http://localhost:3000/api/auth/google/callback
+ALLOWED_EMAIL_DOMAINS=andrew.cmu.edu,cmu.edu
+```
+
+In Google Cloud Console → Credentials → OAuth client ID (Web), the **Authorized
+redirect URI must match `OAUTH_REDIRECT_URI` character for character**, port
+included. That mismatch is the single most common failure — if you run the demo
+on `--port 3100`, register `http://localhost:3100/api/auth/google/callback` too.
+
+`MONGODB_URI` is optional. With it, sign-in upserts SCHEMA.md's `users` document
+(keyed on the Google `sub`, never the email) and the session route reads through
+to it, so deleting an account immediately invalidates its cookie. Without it the
+signed cookie is the whole user record — fine for a demo, and the tradeoffs are
+spelled out at the top of `buddy/lib/auth/users.ts`.
+
+### The class catalog cluster
+
+The class list in onboarding's **Customize** picker comes from a `schedule`
+collection in a **separate** Atlas account from the one above — one document per
+class, carrying `course_id`, `course_title`, and `lecture`/`recitation` arrays of
+sections (`subcategory`, `days`, `begin_time`, `end_time`, building, room,
+instructors). It has its own variables in `buddy/.env.local` (template in
+`buddy/.env.example`) precisely so it can never be confused with `MONGODB_URI`:
+
+```
+SCHEDULE_MONGODB_URI=
+SCHEDULE_MONGODB_DB=
+SCHEDULE_MONGODB_COLLECTION=schedule
+```
+
+Check the connection before touching the UI:
+
+```bash
+node --env-file=buddy/.env.local buddy/scripts/check-schedule.mjs
+```
+
+The same Network Access caveat from step 2 above applies. If the cluster isn't
+configured or isn't reachable, `GET /api/courses` serves the built-in list from
+`test-data/schedule_test_data.json` instead — but says so, in the response's
+`source` field, in a server log line, and in a note under the picker itself. The
+demo never goes down over this, and it never silently pretends either.
+
+### Sections, and how class times reach the calendar
+
+Roughly a third of the catalog's courses offer more than one lecture or recitation,
+so the class question asks which section is yours — inline, as part of picking the
+class, not as a sixth onboarding question. A course with exactly one option is
+resolved silently; Continue waits only on genuine forks.
+
+The picked sections' meeting times travel to the optimizer as `courses` on
+`POST /preferences/operations` (`preference_pipeline.CourseOverride`), which is new:
+the solver previously only knew the courses it loaded at startup and rejected any
+other id. They come back on `plan.courses[].meeting_times`, which is what lets a
+chat-driven re-solve hand the same course straight back instead of losing its class
+blocks. Sections are resolved from Mongo server-side — the browser only ever sends
+section ids, so it can't inject arbitrary blocks into a solve.
+
+Two deliberate limits:
+
+- **These courses have no assignment data**, so a plan built from them shows your
+  real timetable and no study sessions. That's stated rather than papered over with
+  invented coursework.
+- **Doha sections are filtered out.** The catalog covers every CMU campus, and a
+  Qatar section's Sun–Thu week describes a different student's semester.
+
+Picking two classes that meet at the same hour returns a 400 naming both. That
+would otherwise reach CP-SAT as two immovable overlapping intervals and come back
+as a bare `INFEASIBLE` for the whole schedule — see the note in `scheduler.py`
+about why a routine block now yields to a class.
 
 ## Try it
 

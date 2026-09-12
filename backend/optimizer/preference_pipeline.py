@@ -31,11 +31,40 @@ class PreferenceCall(BaseModel):
     arguments: dict = Field(default_factory=dict)
 
 
+class MeetingTimeOverride(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    days: list[Literal["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]] = Field(min_length=1)
+    start_time: str = Field(pattern=r"^([01][0-9]|2[0-3]):[0-5][0-9]$")
+    end_time: str = Field(pattern=r"^([01][0-9]|2[0-3]):[0-5][0-9]$")
+    location: str | None = None
+
+
+class CourseOverride(BaseModel):
+    """A course the caller supplies rather than one this service loaded at
+    startup -- the real section a student picked out of the course catalog,
+    with the meeting times of that specific lecture/recitation.
+
+    Deliberately the same shape as api_models.CourseIn (/solve's course), so
+    there is one representation of "a course with meeting times" on this
+    service's wire, not two. Overrides are per-request and never mutate
+    api.DATA: a solve for one student can't change what another sees.
+
+    A course supplied this way usually has no `tasks` here -- the catalog knows
+    when a class meets, not what is due in it -- so it contributes fixed blocks
+    and no study sessions. That is the honest outcome, not a degraded one.
+    """
+    model_config = ConfigDict(extra="forbid")
+    id: str
+    name: str
+    meeting_times: list[MeetingTimeOverride] = Field(default_factory=list, max_length=20)
+
+
 class PreferenceBatch(BaseModel):
     model_config = ConfigDict(extra="forbid")
     operations: list[PreferenceCall] = Field(default_factory=list, max_length=12)
     preferences: list[PreferenceCall] = Field(default_factory=list, max_length=50)
     course_ids: list[str] | None = Field(default=None, min_length=1, max_length=6)
+    courses: list[CourseOverride] | None = Field(default=None, max_length=6)
 
 
 def canonical_preferences(store):
@@ -132,12 +161,29 @@ def register_pipeline(app):
                             "method": "GET" if call.name == "list_current_preferences" else "POST",
                             "result": output})
         preferences = canonical_preferences(store)
-        selected = set(body.course_ids) if body.course_ids is not None else set(api.DATA.courses)
-        if not selected.issubset(api.DATA.courses):
+        # A caller-supplied course wins over one of the same id loaded at startup:
+        # the student picked a specific section, and that beats whatever generic
+        # meeting time this service happens to have for the course.
+        overrides = {
+            c.id: data_loader.Course(
+                id=c.id,
+                name=c.name,
+                meeting_times=[
+                    data_loader.MeetingTime(mt.days, mt.start_time, mt.end_time, mt.location)
+                    for mt in c.meeting_times
+                ],
+            )
+            for c in (body.courses or [])
+        }
+        available = {**api.DATA.courses, **overrides}
+        selected = set(body.course_ids) if body.course_ids is not None else set(available)
+        if not selected.issubset(available):
             raise HTTPException(422, "Unknown course ID")
         data = data_loader.ScheduleData(
             generated_at=api.DATA.generated_at,
-            courses={k: c for k, c in api.DATA.courses.items() if k in selected},
+            courses={k: c for k, c in available.items() if k in selected},
+            # Only startup-loaded courses have tasks. An overridden course with no
+            # tasks contributes its class blocks and nothing else -- see CourseOverride.
             tasks=[t for t in api.DATA.tasks if t.course_id in selected],
         )
         if not _SOLVE_LOCK.acquire(timeout=25):
