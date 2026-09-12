@@ -96,15 +96,37 @@ violates one of these as a regression, not a simplification, even if it looks cl
 ### Repo layout (target — not all of this exists yet)
 
 ```
-/frontend            React + Tailwind app (Vite) — see "Frontend" below
-/backend             Next.js API + auth (exists)
+/frontend            React 19 + Tailwind + Vite — see "Frontend" below
+/backend             Next.js 16 API + auth
   /app/api            route handlers: 14 routes matching frontend/src/lib/endpoints.js
   /lib                mongo, session, google (OAuth), runs, planEngine, seed
-  /optimizer          CP-SAT model + preference compiler registry (Python) — not yet
+  /optimizer          CP-SAT model + preference compiler registry (Python)
   /pipeline           Canvas scraping + syllabus parsing (per-semester job) — not yet
+/docs/prototype      the original single-file MVP, kept as a design reference
 SCHEMA.md            MongoDB schema — source of truth for collection shapes
 CLAUDE.md            this file
 ```
+
+**There is no npm project at the repo root, deliberately.** `frontend/` and `backend/`
+each own their dependencies. A root `package.json` existed briefly and declared its own
+copies of `react` and `lucide-react` at versions that disagreed with `frontend/` — two
+conflicting declarations of the same libraries, which is exactly the confusion a root
+manifest invites when nothing at the root is actually built. Don't reintroduce one; if
+shared tooling is ever needed, make it a workspace on purpose rather than by accident.
+
+### Versions
+
+Both halves track current majors and must agree on React, since the frontend's render
+tests import React directly and Next bundles its own copy: **React 19.3**, Vite 8,
+Next 16, MongoDB driver 7, jose 6, lucide-react 1.x. Tailwind is deliberately held at
+**3.4.x** — Tailwind 4 moves configuration into CSS (`@import "tailwindcss"`, `@theme`,
+`@custom-variant dark` instead of `tailwind.config.js` and `@tailwind` directives), so
+it is a real migration of every surface in the app rather than a version bump. Worth
+doing, but not in the same change as anything else.
+
+`esbuild` is an explicit devDependency of `frontend/`, not a transitive one. The smoke
+runner imports it directly, and it only appeared to work before because Vite 5 hoisted
+it; Vite 8 does not.
 
 ### The frontend/backend seam
 
@@ -122,18 +144,16 @@ Mongo-generated ObjectIds. `tasks` and `sessions` use the readable strings
 precisely because a per-process counter would hand two users the same id. Do not wrap
 those in `new ObjectId(...)` — it will 404 every real session.
 
-What exists today, produced during MVP/design work and worth using as a reference
-implementation (none of it is wired to a real backend yet):
+Reference material, as distinct from the live app:
 
-- **Frontend MVP** (`buddy-mvp.jsx`) — full React/Tailwind prototype: onboarding, the
-  post-onboarding "first look" (three interchangeable views of one generated plan),
-  the main Plan/Classes hub, task detail, and the chat sidebar. Runs entirely on mock
-  in-memory data; every place a real API call belongs is marked with a
-  `// In production: ...` comment.
-- **`SCHEMA.md`** — MongoDB schema, v2, feature-aligned with the MVP.
-- **`scheduler_core.py`** — CP-SAT sketch: the preference-compiler-registry pattern,
-  a `reify_window` helper, and a working `build_and_solve` assembly function. Not
-  production code — a pattern to build from, with unit-testable seams already marked.
+- **`docs/prototype/buddy-mvp.jsx`** — the original single-file React/Tailwind
+  prototype. Superseded by `frontend/`, kept because its comments record *why* several
+  layout decisions were made. Do not develop against it.
+- **`SCHEMA.md`** — MongoDB schema, v2. Still the source of truth for collection shapes.
+- **`backend/optimizer/scheduler_core.py`** — CP-SAT sketch: the
+  preference-compiler-registry pattern, a `reify_window` helper, and a working
+  `build_and_solve` assembly function. Not yet called by the API — `backend/lib/runs.js`
+  is the seam where it plugs in.
 
 ## Frontend
 
