@@ -131,7 +131,21 @@ def build_and_solve(
                     continue
                 start_dt = datetime.combine(date, time.fromisoformat(mt.start_time), tzinfo=window_start.tzinfo)
                 end_dt = datetime.combine(date, time.fromisoformat(mt.end_time), tzinfo=window_start.tzinfo)
-                s, e = slot_of(start_dt), slot_of(end_dt)
+                # End rounds UP (slot_of_ceil), not down: a 50-minute class
+                # (15151 Math Foundations, e.g. 17:00-17:50) doesn't divide
+                # evenly into 15-minute slots, and flooring the end -- as
+                # this line did until it was caught -- silently reserves
+                # only 45 of those 50 real minutes in the no-overlap slot
+                # grid. Nothing exposed the gap until something else could
+                # legally start at exactly that floored boundary (a meal
+                # window landing at 17:45, 5 real minutes before the class
+                # in this room actually let out) -- same mirror-image lesson
+                # already applied to a review session's not_before bound
+                # (CLAUDE.md), just never applied to a mandatory block's own
+                # end before now. Start still floors -- floor is the safe
+                # direction there (reserves at-or-before the true start,
+                # never after it).
+                s, e = slot_of(start_dt), slot_of_ceil(end_dt)
                 iv = model.NewIntervalVar(s, e - s, e, f"fixed_{course.id}_{day}_{mt.start_time}")
                 all_intervals.append(iv)
                 placed_fixed.append(
@@ -162,10 +176,12 @@ def build_and_solve(
     def clashes_with_class(start_dt, end_dt) -> bool:
         return any(start_dt < c_end and c_start < end_dt for c_start, c_end in course_spans)
 
-    # --- Personal routine blocks (gym, meals, ...): immovable the same way a
-    # class is, just not tied to a course. Not a `courses.meeting_times` --
-    # this is what CLAUDE.md's onboarding "outside commitments" question is
-    # meant to feed, hand-authored here since that flow doesn't exist yet.
+    # --- Personal routine blocks (gym, ...): immovable the same way a class
+    # is, just not tied to a course. Not a `courses.meeting_times` -- this is
+    # what CLAUDE.md's onboarding "outside commitments" question is meant to
+    # feed, hand-authored here since that flow doesn't exist yet. Meals used
+    # to be here too; they're `meal_window` preferences now (see below),
+    # genuinely movable within a bounded range instead of an exact time.
     for day in range(window_days):
         date = (window_start + timedelta(days=day)).date()
         weekday_abbr = WEEKDAY_ABBR[date.weekday()]
@@ -176,7 +192,7 @@ def build_and_solve(
             end_dt = datetime.combine(date, time.fromisoformat(block.end_time), tzinfo=window_start.tzinfo)
             if clashes_with_class(start_dt, end_dt):
                 continue  # you can't be at the gym while you're in a lecture
-            s, e = slot_of(start_dt), slot_of(end_dt)
+            s, e = slot_of(start_dt), slot_of_ceil(end_dt)  # end rounds up -- see the fixed-course-block loop's comment above
             iv = model.NewIntervalVar(s, e - s, e, f"routine_{i}_{day}")
             all_intervals.append(iv)
             placed_fixed.append(
@@ -215,6 +231,46 @@ def build_and_solve(
                         title=b.title, kind=b.kind, start=b.start, end=b.end)
         )
         locked_ids.add(b.id)
+
+    # --- Meal windows: a `meal_window` preference (value: {meal, start, end,
+    # duration_minutes}) is genuinely different from every other preference
+    # type here -- not a SessionCtx-scoped reward/penalty term compiled via
+    # preferences.py's registry, but a mandatory interval whose SOLVED start
+    # time needs extracting back out after the solve to render as a real
+    # calendar block. The registry's compile_all() contract (a list of
+    # (weight, expr) objective terms) has no way to hand that back, so this
+    # is handled directly here instead -- still a real, hand-written,
+    # deterministic piece of code turning one (type, value) preference into
+    # CP-SAT variables, same boundary CLAUDE.md's "AI never touches solver
+    # code" describes, just not routed through compile_all().
+    #
+    # Meals used to be exact-time ROUTINE entries (immovable, same as a
+    # lecture). Now they're a mandatory interval free to land ANYWHERE
+    # within [start, end) each day, `duration_minutes` long -- a decision
+    # variable, not a fixed time nobody actually chose. One window applies
+    # to every day in the range; a weekday-vs-weekend split (meals used to
+    # have one) isn't modeled -- a deliberate simplification, not an oversight.
+    MEAL_LABELS = {"breakfast": "Breakfast & Shower", "lunch": "Lunch", "dinner": "Dinner"}
+    meal_vars: dict[str, tuple[cp_model.IntVar, cp_model.IntVar]] = {}
+    for pref in preferences:
+        if pref.type != "meal_window":
+            continue
+        meal = pref.value["meal"]
+        lo = _time_to_slot_of_day(time.fromisoformat(pref.value["start"]))
+        hi = _time_to_slot_of_day(time.fromisoformat(pref.value["end"]))
+        duration_slots = pref.value["duration_minutes"] // SLOT_MINUTES
+        if hi - lo < duration_slots:
+            continue  # window too narrow for its own duration -- nothing sane to place
+        for day in range(window_days):
+            block_id = f"meal_{meal}_{day}"
+            if block_id in locked_ids:
+                continue  # already decided by a prior solve; see the locked_sessions loop above
+            base = day * SLOTS_PER_DAY
+            start = model.NewIntVar(base + lo, base + hi - duration_slots, f"mealstart_{meal}_{day}")
+            end = model.NewIntVar(base + lo + duration_slots, base + hi, f"mealend_{meal}_{day}")
+            iv = model.NewIntervalVar(start, duration_slots, end, block_id)
+            all_intervals.append(iv)
+            meal_vars[block_id] = (start, end)
 
     # --- Flexible sessions, decomposed from not-done tasks. Optional so an
     # individual session can come back "unplaced" instead of the whole solve
@@ -315,7 +371,15 @@ def build_and_solve(
         "all_intervals": all_intervals,  # compilers may append (e.g. avoid_block)
         "extra_no_overlap_groups": [],
     }
-    preference_terms = compile_all(model, list(preferences), session_ctxs, pref_ctx)
+    # meal_window is deliberately NOT in preferences.py's REGISTRY -- it's
+    # handled directly above, before this point, because unlike every other
+    # type it needs its solved value extracted back out afterward (see the
+    # meal-window loop's own comment). compile_all() raises on an
+    # unregistered type on purpose (a real safety net against a typo'd or
+    # forgotten compiler); meal_window has to be filtered out here rather
+    # than registered with a no-op, or that safety net would have a
+    # permanent, silent hole in it.
+    preference_terms = compile_all(model, [p for p in preferences if p.type != "meal_window"], session_ctxs, pref_ctx)
 
     model.AddNoOverlap(all_intervals)
     for group in pref_ctx["extra_no_overlap_groups"]:
@@ -389,6 +453,29 @@ def build_and_solve(
                 # this session just vanishes from view instead of surfacing.
                 block.kind = "unplaced"
                 unplaced.append(block)
+        # Meals are mandatory (not optional -- see the meal-window loop
+        # above), so a FEASIBLE/OPTIMAL status means every one of them got a
+        # real placement; nothing to check for "did it place" the way a
+        # flexible session's presence bool needs checking.
+        for block_id, (start_v, end_v) in meal_vars.items():
+            meal = block_id.split("_")[1]
+            s, e = solver.Value(start_v), solver.Value(end_v)
+            placed.append(PlacedBlock(
+                # task_id groups all 14 days' worth of one meal under a
+                # single synthetic task ("meal_lunch", not "meal_lunch_2") --
+                # the frontend's own adapter (frontend/src/lib/adapters.js)
+                # silently drops any `type: "flexible"` session with no
+                # task_id from EVERY view (calendar included), the same
+                # pattern already used for review sessions
+                # (plan_payload.py's `reviews` dict). Without this, meals
+                # solve and persist correctly but never render anywhere --
+                # found by looking at the actual rendered page, not by
+                # reading this file in isolation.
+                id=block_id, task_id=f"meal_{meal}", course_id=None,
+                title=MEAL_LABELS.get(meal, meal.capitalize()), kind="flexible",
+                start=window_start + timedelta(minutes=s * SLOT_MINUTES),
+                end=window_start + timedelta(minutes=e * SLOT_MINUTES),
+            ))
         obj = solver.ObjectiveValue()
         bound = solver.BestObjectiveBound()
     else:

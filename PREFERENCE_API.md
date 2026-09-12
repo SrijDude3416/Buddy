@@ -312,7 +312,7 @@ their schedule.
 
 Every tool in this section is implemented and tested against real data. §9 covers
 what's designed but not wired up yet — don't call those; they exist in the catalog
-below intentionally and only these nine do.
+below intentionally and only these ten do.
 
 ### `set_preferred_work_hours`
 **Singleton.** Sets the one daily window flexible work is rewarded for landing in.
@@ -448,13 +448,39 @@ sessions.
 **Example** — *"Give me at least 30 minutes between study sessions"*
 → `set_minimum_gap(minutes=30)`
 
+### `set_meal_window`
+**Accumulating**, scope = `meal` (breakfast/lunch/dinner each have exactly one
+active window; setting lunch never touches breakfast or dinner). **Hard** — the
+window is a real bound, not a soft preference; no `strength` parameter, same
+reasoning as `protect_time_block`/`set_minimum_gap`.
+
+This is NOT an exact time. Meals used to be fixed, immovable blocks (like a
+lecture); now the solver places each one freely anywhere inside the window,
+`duration_minutes` long, wherever fits best around the rest of the day — a
+different length or time on different days is expected, not a bug.
+
+Call it when the student wants to change when they eat: *"I want breakfast
+earlier, like 6 to 8,"* *"lunch should be between 11 and 1:30,"* *"push dinner
+later, after 7."*
+
+| Parameter | Type | Required | Notes |
+|---|---|---|---|
+| `meal` | `breakfast`\|`lunch`\|`dinner` | yes | |
+| `start_time` | `"HH:MM"`, 24-hour | yes | earliest the meal can start |
+| `end_time` | `"HH:MM"`, 24-hour | yes | latest the meal can end — must leave room for `duration_minutes` |
+| `duration_minutes` | integer, 15-90 | no, default 45 | 45 is the tested default — this schedule's setting before it was ever adjustable |
+
+**Example** — *"Lunch should be between 11:30 and 2"*
+→ `set_meal_window(meal="lunch", start_time="11:30", end_time="14:00")`
+→ replaces lunch's previous window; breakfast and dinner are untouched.
+
 ### `remove_preference`
 Deletes one active preference. See §4 for the persistence model this depends on.
 
 | Parameter | Type | Required | Notes |
 |---|---|---|---|
-| `preference_type` | one of `preferred_work_hours`, `daily_workload_limit`, `protected_time_block`, `break_habits`, `task_spacing`, `urgency_emphasis`, `minimum_session_gap` | yes | |
-| `match` | object | only if >1 entry of that type is active | repeat enough of the original parameters to identify which one, e.g. `{"days": ["Fri","Sat"]}` |
+| `preference_type` | one of `preferred_work_hours`, `daily_workload_limit`, `protected_time_block`, `break_habits`, `task_spacing`, `urgency_emphasis`, `minimum_session_gap`, `meal_window` | yes | |
+| `match` | object | only if >1 entry of that type is active — normal for `meal_window`, since breakfast/lunch/dinner are three separate entries | repeat enough of the original parameters to identify which one, e.g. `{"days": ["Fri","Sat"]}` for a protected block, or `{"meal": "lunch"}` |
 
 **Example** — *"Actually never mind the Sunday thing, I'll manage"*, with both a
 general daily cap and a Sunday-specific one active
@@ -564,14 +590,21 @@ catalog above. Noted here so whoever wires this next knows exactly what's missin
 | `set_task_spacing` | `spread_multi_session_tasks` | `_compile_spread_multi_session` | gentle=15, moderate=25\*, firm=35 |
 | `set_urgency_emphasis` | `urgency_priority` | `_compile_urgency_priority` | gentle=4, moderate=8\*, firm=16 |
 | `set_minimum_gap` | `min_gap_between_sessions` | `_compile_min_gap` | hard, no weight (`minutes`, tested default 15) |
+| `set_meal_window` | `meal_window` | *(none — see below)* | hard, no weight (`start`/`end`/`duration_minutes`, tested default 45-minute meals) |
 
 \* = the exact value empirically tested this session (see `backend/optimizer/README.md`,
 "Round 4" for `max_continuous_work`'s tuning history in particular — the others are
 principled interpolations around one tested point, not independently verified across
 the full range; `set_task_spacing`/`set_urgency_emphasis`'s `moderate` are the values
 these two ran at unconditionally, for every solve, before they were tools at all — see
-§6). All seven compilers live in `backend/optimizer/preferences.py`; the registry that
-dispatches on `type` is `REGISTRY` at the bottom of that file.
+§6). Six of the seven compilers live in `backend/optimizer/preferences.py`, dispatched
+by `REGISTRY` at the bottom of that file. `meal_window` is the exception — it's handled
+directly in `backend/optimizer/scheduler.py`, not the registry, because unlike every
+other type its solved placement has to be extracted back out after the solve (to render
+as a real calendar block), which the registry's `(weight, expr)` objective-term contract
+has no way to carry. Still a real, hand-written, deterministic piece of code turning one
+`(type, value)` preference into CP-SAT variables — nothing about the "AI never touches
+solver code" boundary is different, just where the code lives.
 
 Weights above were tuned against a 14-day rolling window
 (`backend/optimizer/run_prototype.py`'s default), not the 7-day horizon the frontend
@@ -586,7 +619,7 @@ but that's an expectation, not something re-verified at 7 days yet.
 own small API surface (find/delete by type+scope, list by student) lives in
 `preferences_store.py`'s `PreferenceStore`, not `compile_all()`.
 
-`POST /solve`, all nine tools under `/tools/`, and `GET /plan` are implemented in
+`POST /solve`, all ten tools under `/tools/`, and `GET /plan` are implemented in
 `backend/optimizer/api.py` (models in `api_models.py`, persistence in
 `preferences_store.py`) and verified end-to-end against real requests — including the
 error paths (`409` ambiguous removal, `404` nothing to remove, `422` validation). Still

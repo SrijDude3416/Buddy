@@ -30,6 +30,7 @@ from preferences_store import (
     WEIGHT_MAP,
     TOOL_TO_INTERNAL,
     INTERNAL_TO_TOOL,
+    MEAL_WINDOW_DEFAULTS,
     PreferenceStore,
     AmbiguousRemoval,
     NothingToRemove,
@@ -37,6 +38,7 @@ from preferences_store import (
 from run_prototype import ROUTINE, NOW as WINDOW_START
 from api_models import (
     SolveRequest,
+    SetMealWindowIn,
     SolveResponse,
     PlacedBlockOut,
     SetPreferredWorkHoursIn,
@@ -90,10 +92,15 @@ ALWAYS_ON_DEFAULTS: list[Preference] = []
 # same way by seed_mongo.py) keep behaving exactly as documented, while
 # these three are now genuinely just 3 more preferences someone could set,
 # remove, or replace like any other.
+# Meal windows follow the same "used to be a hardcoded constant, now an
+# ordinary tool-editable preference" story -- they used to be exact,
+# immovable ROUTINE entries (ROUTINE, imported below); see scheduler.py's
+# meal-window handling and MEAL_WINDOW_DEFAULTS for the rest.
 for _default_type, _default_value, _default_weight in [
     ("min_gap_between_sessions", {"minutes": 15}, 0),  # hard; weight unused
     ("spread_multi_session_tasks", {}, WEIGHT_MAP["spread_multi_session_tasks"]["moderate"]),
     ("urgency_priority", {}, WEIGHT_MAP["urgency_priority"]["moderate"]),
+    *[("meal_window", v, 0) for v in MEAL_WINDOW_DEFAULTS],  # hard; weight unused
 ]:
     STORE.set(_default_type, _default_value, _default_weight, source="onboarding")
 
@@ -308,6 +315,13 @@ def set_minimum_gap(body: SetMinimumGapIn, resolve: bool = True, store: Preferen
     value = {"minutes": body.minutes}
     action = store.set("min_gap_between_sessions", value, weight=0, source="chat")  # hard constraint; weight unused
     return _tool_response("min_gap_between_sessions", value, None, action, resolve, store)
+
+
+@app.post("/tools/set_meal_window", response_model=ToolCallResponse)
+def set_meal_window(body: SetMealWindowIn, resolve: bool = True, store: PreferenceStore = Depends(get_preference_store)) -> ToolCallResponse:
+    value = {"meal": body.meal, "start": body.start_time, "end": body.end_time, "duration_minutes": body.duration_minutes}
+    action = store.set("meal_window", value, weight=0, source="chat")  # hard window; weight unused
+    return _tool_response("meal_window", value, None, action, resolve, store)
 
 
 @app.post("/tools/remove_preference", response_model=ToolCallResponse)

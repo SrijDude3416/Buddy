@@ -25,13 +25,15 @@ NOW = datetime.fromisoformat("2026-09-12T00:00:00-04:00")  # start of window == 
 # commitments" question is meant to eventually produce. MeetingTime is reused
 # here rather than a new dataclass; its `location` field doubles as the
 # block's display label since personal blocks don't have a real location.
+#
+# Meals used to be fixed entries here too (exact time, immovable, same as
+# Gym). They aren't anymore -- a meal genuinely can shift day to day, unlike
+# a lecture. They're `meal_window` preferences now instead (seed_mongo.py's
+# seed_default_preferences(), tool-editable via set_meal_window): a bounded
+# time range CP-SAT places freely within, not an exact time nobody chose.
+# Gym stays here -- it's a real fixed commitment, not a meal.
 ROUTINE: list[MeetingTime] = [
     MeetingTime(["Mon", "Tue", "Wed", "Thu", "Fri"], "06:30", "07:45", "Gym"),
-    MeetingTime(["Mon", "Tue", "Wed", "Thu", "Fri"], "07:45", "08:30", "Breakfast & Shower"),
-    MeetingTime(["Sat", "Sun"], "09:30", "10:15", "Breakfast & Shower"),
-    MeetingTime(["Mon", "Tue", "Wed", "Thu", "Fri"], "12:00", "12:45", "Lunch"),
-    MeetingTime(["Sat", "Sun"], "13:00", "13:45", "Lunch"),
-    MeetingTime(["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"], "18:00", "18:45", "Dinner"),
 ]
 
 # Hand-authored stand-ins for what onboarding/chat would eventually produce

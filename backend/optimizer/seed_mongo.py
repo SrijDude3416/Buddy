@@ -32,7 +32,7 @@ from datetime import datetime
 from pathlib import Path
 
 from mongo_loader import DEMO_USER_ID, SEED_SOURCE, ABBR_TO_JS_WEEKDAY, get_db
-from preferences_store import WEIGHT_MAP
+from preferences_store import WEIGHT_MAP, MEAL_WINDOW_DEFAULTS
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 TEST_DATA_PATH = REPO_ROOT / "test-data" / "schedule_test_data.json"
@@ -110,18 +110,20 @@ def seed(wipe: bool = False) -> None:
 def seed_default_preferences(db=None) -> None:
     """The initial calendar's default preferences used to be hardcoded
     Python: `preferred_hours` (08:00-17:00, moderate) as a PreferenceCall
-    inside preference_pipeline.py's initial_plan(), and separately
-    min_gap_between_sessions/spread_multi_session_tasks/urgency_priority as
-    api.py's ALWAYS_ON_DEFAULTS -- an untouchable constant spliced into
-    every solve, not tool-exposed at all (the original PREFERENCE_API.md
-    §6). All four are real seed data now, exactly like courses/tasks:
-    inspectable in the `preferences` collection before the app is ever
-    opened once, and entirely ordinary documents -- nothing about any of
-    them is special or protected anymore. OpenAI's tools treat them as such
-    once they exist (set_preferred_work_hours/set_task_spacing/
-    set_urgency_emphasis/set_minimum_gap replace them -- all four are
-    singletons per preferences_store.SCOPE_FNS; remove_preference deletes
-    any of them outright).
+    inside preference_pipeline.py's initial_plan(), min_gap_between_sessions/
+    spread_multi_session_tasks/urgency_priority as api.py's
+    ALWAYS_ON_DEFAULTS (an untouchable constant spliced into every solve,
+    not tool-exposed at all -- the original PREFERENCE_API.md §6), and
+    breakfast/lunch/dinner as exact, immovable ROUTINE entries
+    (run_prototype.py) -- a meal that could never actually move, the same
+    as a lecture. All seven are real seed data now, exactly like
+    courses/tasks: inspectable in the `preferences` collection before the
+    app is ever opened once, and entirely ordinary documents -- nothing
+    about any of them is special or protected anymore. OpenAI's tools treat
+    them as such once they exist (set_preferred_work_hours/set_task_spacing/
+    set_urgency_emphasis/set_minimum_gap/set_meal_window replace them --
+    all are singletons or meal-scoped-accumulating per
+    preferences_store.SCOPE_FNS; remove_preference deletes any of them).
 
     Same tested weights as before the migration (see preferences_store.py's
     WEIGHT_MAP comment for why widening these two's range to gentle/firm
@@ -147,6 +149,7 @@ def seed_default_preferences(db=None) -> None:
          "weight": WEIGHT_MAP["spread_multi_session_tasks"]["moderate"]},
         {"type": "urgency_priority", "value": {},
          "weight": WEIGHT_MAP["urgency_priority"]["moderate"]},
+        *[{"type": "meal_window", "value": v, "weight": 0} for v in MEAL_WINDOW_DEFAULTS],  # hard; weight unused
     ]
     db.preferences.insert_many(
         [{"user_id": DEMO_USER_ID, "source": "onboarding", "source_message_id": None, **d} for d in defaults]

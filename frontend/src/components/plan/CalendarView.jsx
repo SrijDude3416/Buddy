@@ -74,7 +74,7 @@ function Block({ entry, laneCount, startHour, colorMap, onOpenTask }) {
       data-event-id={item.id}
       data-start={item.start}
       data-end={item.end}
-      title={`${item.action} · ${item.courseTitle} · ${item.timeLabel} · ${item.durationMin} min`}
+      title={[item.action, item.courseTitle, item.timeLabel, `${item.durationMin} min`].filter(Boolean).join(' · ')}
       className={`absolute rounded-lg overflow-hidden border text-left flex hover:ring-2 hover:ring-emerald-500/40 transition-shadow ${color.tint} ${color.border}`}
     >
       <span className={`w-1 shrink-0 ${color.rail}`} />

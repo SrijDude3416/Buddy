@@ -196,6 +196,21 @@ implementation (none of it is wired to a real backend yet):
   deleted — the place genuinely non-tool-exposable system behavior would go
   if that's ever needed again.
 
+  Meals (breakfast/lunch/dinner) went through the same migration, from a
+  different starting point — they used to be exact, immovable `ROUTINE`
+  entries (`run_prototype.py`), the same as a lecture, not a preference at
+  all. Now they're `meal_window` preferences: a bounded time range CP-SAT
+  places freely within (`set_meal_window`), not an exact time nobody chose.
+  Unlike every other preference type, `meal_window` isn't compiled through
+  `preferences.py`'s registry — it's handled directly in `scheduler.py`,
+  because its solved placement has to be extracted back out after the solve
+  to render as a real calendar block, which the registry's `(weight, expr)`
+  objective-term contract has no way to carry. Still a real, hand-written,
+  deterministic piece of code turning one `(type, value)` preference into
+  CP-SAT variables — the boundary is about who decides, not which file the
+  decision lives in. `ROUTINE` now holds only Gym (a genuinely fixed
+  commitment, not a meal).
+
 ## Frontend
 
 ### UI flow
@@ -413,7 +428,24 @@ actual, running code — no longer just a sketch):
   floors to the 20:15 slot; using that as a "review session can't start before this"
   bound let the review start 5 real minutes before the lecture it was reviewing had
   even ended. Flooring is the safe direction for a *deadline* (never allows running
-  late); it is not safe for a *not-before* bound (it allows starting early).
+  late); it is not safe for a *not-before* bound (it allows starting early). **The same
+  rounding direction matters for a mandatory block's own END, not just a not-before
+  bound** — found a second time, in a different place: a fixed course block's end time
+  was floored (`slot_of`, not `slot_of_ceil`) when converted into the no-overlap slot
+  grid, so a 50-minute class (15151 Math Foundations, 17:00-17:50) reserved only 45 of
+  its real minutes. Invisible for a long time because nothing was ever placed to land
+  exactly on that floored boundary — surfaced the moment something else (a meal window)
+  could legally start at exactly 17:45, 5 real minutes before the room actually cleared.
+  Same lesson, same fix (round the end UP), just a second call site that needed it.
+- **A flexible session with no `task_id` renders nowhere in the frontend, silently.**
+  `frontend/src/lib/adapters.js` filters `type: "flexible"` sessions to only those with
+  a truthy `taskId` before they ever reach the calendar/list/goals views — a
+  `PlacedBlock` with `task_id=None` (meals, initially) solves and persists correctly but
+  never appears anywhere in the UI, with no error. The fix already existed as a pattern:
+  review sessions solve this the same way, via a synthetic per-occurrence task injected
+  into `tasks` in `plan_payload.py`. Meals reuse it with one difference — ONE synthetic
+  task per meal *type* (`meal_lunch`), not per occurrence, since 14 days' worth of one
+  meal should read as one recurring task with many sessions, not 14 separate ones.
 - **A cross-session cumulative constraint (e.g. "no more than 2 hours of work without
   a real break") is O(sessions²) by nature** — every session's running "streak" has to
   check every other session as a candidate predecessor. This scales badly fast; the

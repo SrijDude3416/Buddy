@@ -4,7 +4,7 @@ import definitions from '../../backend/optimizer/tool_schemas.json';
 // Names and parameters correspond to the existing Python /tools endpoints.
 // The Python models remain the final argument validators.
 export const PreferenceCallSchema = z.object({
-  name: z.enum(['set_preferred_work_hours', 'set_daily_workload_limit', 'protect_time_block', 'set_break_habits', 'set_task_spacing', 'set_urgency_emphasis', 'set_minimum_gap', 'remove_preference', 'list_current_preferences']),
+  name: z.enum(['set_preferred_work_hours', 'set_daily_workload_limit', 'protect_time_block', 'set_break_habits', 'set_task_spacing', 'set_urgency_emphasis', 'set_minimum_gap', 'set_meal_window', 'remove_preference', 'list_current_preferences']),
   arguments: z.record(z.unknown()),
 }).strict();
 export const PreferenceCallsSchema = z.array(PreferenceCallSchema).max(12);

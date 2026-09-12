@@ -60,8 +60,20 @@ TOOL_TO_INTERNAL: dict[str, str] = {
     "task_spacing": "spread_multi_session_tasks",
     "urgency_emphasis": "urgency_priority",
     "minimum_session_gap": "min_gap_between_sessions",
+    "meal_window": "meal_window",  # same name both sides -- there's no separate "nicer" tool-facing name for this one
 }
 INTERNAL_TO_TOOL: dict[str, str] = {v: k for k, v in TOOL_TO_INTERNAL.items()}
+
+# Default meal windows -- sensible ranges, not any real student's stated
+# preference. One shared place so api.py's bare STORE and seed_mongo.py's
+# Mongo seed can't quietly drift apart into two different "defaults."
+# duration_minutes (45) matches what these meals used as fixed ROUTINE
+# blocks before this feature existed (run_prototype.py's git history).
+MEAL_WINDOW_DEFAULTS: list[dict] = [
+    {"meal": "breakfast", "start": "07:00", "end": "10:30", "duration_minutes": 45},
+    {"meal": "lunch", "start": "11:00", "end": "13:30", "duration_minutes": 45},
+    {"meal": "dinner", "start": "17:30", "end": "20:00", "duration_minutes": 45},
+]
 
 # None => singleton (at most one entry of this internal type, ever).
 # A function => accumulating; its return value is the scope key two entries
@@ -73,6 +85,10 @@ SCOPE_FNS: dict[str, ScopeFn | None] = {
     "spread_multi_session_tasks": None,
     "urgency_priority": None,
     "min_gap_between_sessions": None,
+    # Accumulating, scoped by which meal -- setting the lunch window doesn't
+    # touch the breakfast one, but re-setting lunch replaces the old lunch
+    # window rather than adding a second, conflicting one.
+    "meal_window": lambda value: (value["meal"],),
     "daily_load_cap": lambda value: tuple(sorted(value.get("days", []))),  # () = every day
     "avoid_block": lambda value: (
         tuple(sorted(value["days"])),

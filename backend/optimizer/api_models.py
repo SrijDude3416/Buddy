@@ -19,6 +19,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 Weekday = Literal["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 Strength = Literal["gentle", "moderate", "firm"]
+Meal = Literal["breakfast", "lunch", "dinner"]
 
 # "HH:MM" 24-hour. protect_time_block's end_time additionally allows "24:00"
 # for midnight (PREFERENCE_API.md §5: "use '24:00' for midnight, not
@@ -182,10 +183,37 @@ class SetMinimumGapIn(ToolInput):
     minutes: int = Field(default=15, ge=0, le=60)
 
 
+class SetMealWindowIn(ToolInput):
+    # Meals used to be an exact, immovable time (api.py's old ROUTINE) --
+    # now a bounded window CP-SAT places freely within (scheduler.py's
+    # meal-window handling, not preferences.py's registry: it needs its
+    # solved placement extracted back out, which the registry's plain
+    # (weight, expr) contract can't carry). Hard -- like protect_time_block,
+    # the window itself is the point, no strength parameter.
+    meal: Meal
+    start_time: str = _time_field()
+    end_time: str = _time_field()
+    duration_minutes: int = Field(default=45, ge=15, le=90)
+
+    @model_validator(mode="after")
+    def _end_after_start(self) -> "SetMealWindowIn":
+        if self.end_time <= self.start_time:
+            raise ValueError("end_time must be later than start_time")
+        return self
+
+    @model_validator(mode="after")
+    def _window_fits_duration(self) -> "SetMealWindowIn":
+        start_min = int(self.start_time[:2]) * 60 + int(self.start_time[3:])
+        end_min = int(self.end_time[:2]) * 60 + int(self.end_time[3:])
+        if end_min - start_min < self.duration_minutes:
+            raise ValueError("the window is narrower than duration_minutes -- nothing could fit in it")
+        return self
+
+
 class RemovePreferenceIn(ToolInput):
     preference_type: Literal[
         "preferred_work_hours", "daily_workload_limit", "protected_time_block", "break_habits",
-        "task_spacing", "urgency_emphasis", "minimum_session_gap",
+        "task_spacing", "urgency_emphasis", "minimum_session_gap", "meal_window",
     ]
     match: dict | None = None
 

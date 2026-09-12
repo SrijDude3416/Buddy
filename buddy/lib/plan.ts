@@ -12,7 +12,11 @@ export const PlanSchema = z.object({
       days: z.array(z.string()), start_time: z.string(), end_time: z.string(), location: z.string().nullable(),
     })).default([]),
   })).max(30),
-  tasks: z.array(z.object({ _id: z.string(), course_id: z.string(), display_title: z.string(), source_assignment: z.string(), status: z.string(), due_at: WallTime, priority_weight: z.number(), est_duration_min: z.number() })).max(200),
+  // course_id is nullable -- a meal task (scheduler.py's meal-window
+  // handling: breakfast/lunch/dinner) genuinely belongs to no course, the
+  // same honest "null, not a fake id" sessions[].course_id already allows
+  // below for a personal/fixed block.
+  tasks: z.array(z.object({ _id: z.string(), course_id: z.string().nullable(), display_title: z.string(), source_assignment: z.string(), status: z.string(), due_at: WallTime, priority_weight: z.number(), est_duration_min: z.number() })).max(200),
   sessions: z.array(z.object({
     _id: z.string(), task_id: z.string().nullable(), course_id: z.string().nullable(),
     type: z.enum(['fixed', 'flexible']), action: z.string(), intensity: z.string(),
