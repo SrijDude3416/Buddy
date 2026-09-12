@@ -78,6 +78,14 @@ violates one of these as a regression, not a simplification, even if it looks cl
   CMU's own directory doing the authenticating. The `hd` *request* parameter is a UI hint
   only and is trivially bypassed — the verified `hd`/email-domain claim is the real gate,
   so never treat the request parameter as the check.
+- **Missing auth config fails closed in production, and only degrades in dev.**
+  `buddy/lib/auth/env.ts` resolves one of three modes — `oauth` (credentials present,
+  real gate), `demo` (the zero-config walkthrough, one fixed demo student), and
+  `unconfigured` (production with no credentials: no demo user, a sign-in screen that
+  says what is missing). The tempting simplification is to fall back to the demo user
+  whenever Google isn't configured. Don't: that turns one dropped env var on a deploy
+  into an app silently open to everyone, and it would look exactly like a working
+  deployment. `BUDDY_ALLOW_DEMO=1` is the *explicit* bypass, and the only one.
 
 ## Architecture
 
@@ -97,6 +105,9 @@ violates one of these as a regression, not a simplification, even if it looks cl
 
 ```
 /frontend            React + Tailwind app (see "Frontend" below)
+/buddy
+  /app/api/auth       Google OAuth + session routes for the running demo
+  /lib/auth           env-mode resolution, PKCE flow, JWT cookie, optional user store
 /backend
   /api                Next.js API routes
   /optimizer          CP-SAT model + preference compiler registry (Python) — deployed
@@ -158,23 +169,33 @@ implementation (none of it is wired to a real backend yet):
 3. **Main hub** — two tabs, **Plan** and **Classes**, a light/dark/system theme control,
    plus an "Ask Buddy" button that toggles a slide-in sidebar (closed by default, never
    auto-opens).
-   - **Plan** is a three-band layout:
+   - **Plan** is a two-band layout:
      1. **Calendar + class color key**, side by side. The calendar is a real grid (hour
         axis, blocks placed by `sessions.start` and sized by `duration_min`, week or
         single-day range, a "now" line on today, overlapping blocks split into
-        side-by-side lanes rather than hiding each other). Fixed blocks render dark with
-        a lock and are not clickable; flexible sessions are tinted in their class color
-        and open the task. The key on the right doubles as a per-class progress and
-        next-deadline panel.
-     2. **Goal swimlanes** directly underneath, for whichever day is selected in the
-        calendar. **Rows are goals, not days** — every session sits under the class it
-        serves, on the same time axis as the grid above it. The calendar answers "when is
-        my time going", the swimlanes answer "what is it going toward". A class with
-        nothing that day still gets an empty lane, because that is information too.
-     3. **Coming up** — deadlines in relative time ("Midterm in 12 days"), never absolute
-        dates.
+        side-by-side lanes rather than hiding each other). *Every* block carries its
+        class's color — fixed class time in the deeper `strong*` tier with a lock and no
+        click target, flexible sessions in the light tint, opening the task. Only blocks
+        with no class at all (gym, meals) are neutral. The key on the right doubles as a
+        per-class progress and next-deadline panel.
+     2. **Coming up** — deadlines in relative time ("Midterm in 12 days"), never absolute
+        dates. Each card is a button that opens the task it names; the label, the
+        countdown and the click target are all read off the same next-due task, so a
+        card can never describe one task and open another.
+   - The day heading carries the day's two numbers together: how much is on it
+     ("4 things · 3.5h") and, in bold, how optimal the placement is ("99.9% optimal
+     schedule" — the *complement* of CP-SAT's objective/bound gap, since a gap is the
+     wrong way round for a reader). Solver status and solve time are engine trivia and
+     stay in `optimizer_runs`, not on screen.
    - The old *Today* list and *this week* load strip were both subsumed by the calendar,
      which shows the same information positioned in real time, and were removed.
+   - **~~Goal swimlanes under the calendar.~~ — REMOVED (owner decision).** They restated
+     the selected day's sessions a second time, on a second time axis, directly under the
+     grid that had just shown them — two encodings of one day is exactly the cognitive
+     load the hub should not be charging. The *idea* survives where it isn't redundant:
+     `GoalSwimlanes` is still one of the three first-look views, and the class key beside
+     the calendar still answers "what is my time going toward" per class. Don't
+     reintroduce a second per-day timeline on the Plan tab.
    - **Classes** (auxiliary feature): pick a class, see a month-by-month unit/topic
      breakdown. Each topic has a "Resources" action that opens the chat sidebar seeded
      with a request for that specific topic.
@@ -196,9 +217,13 @@ every surface needs its `dark:` pair — a component with only light classes is 
 
 **One color per class**, assigned once from the course order in `src/lib/courseColors.js`
 and used by the calendar blocks, the swimlanes, the legend and the session dots alike. A
-class's color never shifts between views or renders. Class strings are written out in
-full rather than composed at runtime, because Tailwind only generates classes it can see
-literally in the source.
+class's color never shifts between views or renders — and it does not drop out for
+immovable time either: a lecture is its class's color one shade deeper (`strongTint`/
+`strongBorder`/`strongText`), with the *lock*, not a neutral block, carrying "can't
+move". A black lecture next to a colored study session reads as two different kinds of
+thing on the one day a student most needs to see they are the same class. Class strings
+are written out in full rather than composed at runtime, because Tailwind only generates
+classes it can see literally in the source.
 
 Deliberately avoided the common AI-generated-page tells (cream background + terracotta
 accent, tracked-out eyebrow labels, spaced-em-dash chrome, generic identical-rounded-card

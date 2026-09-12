@@ -22,9 +22,49 @@ running optimizer, set `FASTAPI_BASE_URL` in the shell before running the comman
 The Next.js server also reads that URL from `buddy/.env.local`.
 
 For a production local demo: `npm run build`, then `npm start -- --port 3100`.
-No MongoDB, auth, Canvas, or external calendar connection is required. An OpenAI
-key and the Python service are required for chat; there is one interpreter and
-one scheduling engine, with no simulated fallback.
+No MongoDB, Canvas, or external calendar connection is required, and sign-in is
+optional (see below). An OpenAI key and the Python service are required for chat;
+there is one interpreter and one scheduling engine, with no simulated fallback.
+
+## Sign in with CMU (Google OAuth)
+
+CMU Andrew accounts are Google Workspace accounts, so Google OAuth restricted to
+the `andrew.cmu.edu` hosted domain authenticates against CMU's own directory. No
+CMU service-provider registration, and Buddy never sees a password.
+
+Sign-in has three modes, decided by `buddy/lib/auth/env.ts`:
+
+| Google credentials | `NODE_ENV` | Mode | Behaviour |
+|---|---|---|---|
+| set | any | `oauth` | Real gate. Only allowed domains get in. |
+| missing | development | `demo` | Zero-config walkthrough: one fixed demo student, no login. |
+| missing | production | `unconfigured` | **Fails closed.** Sign-in screen explains what is missing. |
+
+`BUDDY_ALLOW_DEMO=1` forces `demo` even with credentials set — used by the
+Playwright suite and for demoing offline. The production row is the important
+one: a deploy that loses its env vars must not silently sign everyone in.
+
+To turn on real sign-in, fill these into `buddy/.env.local` (all documented in
+`buddy/.env.example`):
+
+```bash
+GOOGLE_CLIENT_ID=...apps.googleusercontent.com
+GOOGLE_CLIENT_SECRET=...
+SESSION_SECRET=$(openssl rand -base64 48)
+OAUTH_REDIRECT_URI=http://localhost:3000/api/auth/google/callback
+ALLOWED_EMAIL_DOMAINS=andrew.cmu.edu,cmu.edu
+```
+
+In Google Cloud Console → Credentials → OAuth client ID (Web), the **Authorized
+redirect URI must match `OAUTH_REDIRECT_URI` character for character**, port
+included. That mismatch is the single most common failure — if you run the demo
+on `--port 3100`, register `http://localhost:3100/api/auth/google/callback` too.
+
+`MONGODB_URI` is optional. With it, sign-in upserts SCHEMA.md's `users` document
+(keyed on the Google `sub`, never the email) and the session route reads through
+to it, so deleting an account immediately invalidates its cookie. Without it the
+signed cookie is the whole user record — fine for a demo, and the tradeoffs are
+spelled out at the top of `buddy/lib/auth/users.ts`.
 
 ## Try it
 

@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -28,5 +28,27 @@ if (!external) {
     await delay(250);
   }
   if (!ready) { console.error('The Python optimizer did not start.'); stop(1); }
+}
+// `npm start` runs NODE_ENV=production, where the app deliberately fails closed
+// if Google credentials are missing (see buddy/lib/auth/env.ts). This script is
+// the *local* demo runner, so when there is plainly no OAuth client configured,
+// opt into the no-login demo explicitly rather than presenting a sign-in wall
+// the README says isn't required. A real deploy never runs this file, so a
+// Vercel instance that loses its env vars still fails closed.
+//
+// Next loads buddy/.env.local itself, after this process has already started, so
+// checking process.env alone would wrongly conclude "no OAuth configured" and
+// bypass a sign-in the user had in fact set up. Read the file too.
+function envFileHas(name) {
+  try {
+    return readFileSync(path.join(root, 'buddy/.env.local'), 'utf8')
+      .split('\n')
+      .some((line) => new RegExp(`^\\s*${name}\\s*=\\s*\\S`).test(line));
+  } catch {
+    return false;
+  }
+}
+if (!process.env.BUDDY_ALLOW_DEMO && !process.env.GOOGLE_CLIENT_ID && !envFileHas('GOOGLE_CLIENT_ID')) {
+  process.env.BUDDY_ALLOW_DEMO = '1';
 }
 if (!stopping) start('npm', ['run', mode, '--prefix', 'buddy', '--', ...process.argv.slice(3)]);
