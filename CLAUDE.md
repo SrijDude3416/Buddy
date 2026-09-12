@@ -84,6 +84,9 @@ violates one of these as a regression, not a simplification, even if it looks cl
                       as its own standalone service, not a Vercel function; see
                       "Scheduling engine (CP-SAT)" below
   /pipeline           Canvas scraping + syllabus parsing (per-semester job)
+/test-data           Sample tasks/courses data (see test-data/README.md) — lives at
+                     root, not under /frontend or /backend, so every branch can read
+                     it without depending on another branch's directory
 SCHEMA.md            MongoDB schema — source of truth for collection shapes
 CLAUDE.md            this file
 ```
