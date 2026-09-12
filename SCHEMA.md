@@ -101,6 +101,8 @@ Unchanged. Join between a user and the shared course catalog.
 | `status` | enum | | unchanged — `not_started` / `in_progress` / `done`, tracks the *task*, not any one session |
 | `priority_weight` | float | | unchanged — this is the optimizer's urgency signal, distinct from a session's `intensity` below (urgency vs. cognitive load are different axes) |
 | `actual_time_logged_min` | int / null | | unchanged |
+| `session_plan` | array of int / null | **new** | An explicit, ordered list of session lengths in minutes (e.g. `[120, 120, 30]`), overriding `decompose.py`'s own equal-split guess for this one task. Null (every pre-existing task's value) means "let the default heuristic decide," unchanged from before this field existed. Set only by chat's `add_task` tool (PREFERENCE_API.md) when a student is explicit about session structure — never set for a syllabus-imported task. |
+| `source` | enum / absent | **new** | `"chat"` when the task was added via `add_task`; absent (not set) for every task imported from a syllabus/Canvas. Distinguishes the two without needing a second collection — mirrors `preferences.source`'s `onboarding`/`chat` split, though tasks don't have that field's full onboarding-vs-chat range since there's no task-creation onboarding step. |
 
 Note: there's no `goals` collection. "Goal" in the frontend refers to the *course* — the
 thing a progress bar and a "Quiz in 3 days" line are about. That's just `course_id` +

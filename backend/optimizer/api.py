@@ -18,7 +18,8 @@ http://localhost:8000/docs for FastAPI's interactive Swagger UI.
 """
 from __future__ import annotations
 
-from datetime import datetime
+import uuid
+from datetime import date, datetime, time
 
 from fastapi import FastAPI, HTTPException, Depends
 from fastapi.responses import JSONResponse
@@ -50,6 +51,9 @@ from api_models import (
     SetTaskSpacingIn,
     SetUrgencyEmphasisIn,
     SetMinimumGapIn,
+    AddTaskIn,
+    RemoveTaskIn,
+    TaskCallResponse,
     RemovePreferenceIn,
     ToolCallResponse,
     SolveSummary,
@@ -373,6 +377,91 @@ def list_current_preferences(store: PreferenceStore = Depends(get_preference_sto
         )
         for e in store.list_active()
     ]
+
+
+# --------------------------------------------------------------------------
+# Task tools -- PREFERENCE_API.md's add_task/remove_task. Unlike every tool
+# above, these don't touch STORE/`preferences` at all: they create or delete
+# a real `tasks` document (what decompose.py splits into sessions and
+# CP-SAT places), the same kind of document test-data/schedule_test_data.json
+# seeds. `resolve` still means the same thing (re-solve and return a summary
+# unless the caller is going to batch more calls first, per
+# preference_pipeline.py's usage) -- it's just triggered by a task write
+# instead of a preference write here.
+#
+# `tasks: list = Depends(get_task_list)` mirrors `store = Depends(...)`
+# exactly -- the default (`get_task_list`) returns the process-global
+# `DATA.tasks`, so hitting these endpoints directly (this file's own bare,
+# non-Mongo reference surface, same as every other tool here) mutates it
+# immediately, no isolation, matching how STORE's own bare tools already
+# behave. preference_pipeline.py's real, Mongo-backed pipeline does NOT call
+# these two directly for `remove_task` (see its own comment for why removal
+# needs different, deferred-commit semantics); it does reuse `add_task`
+# as-is, just with a per-request list injected instead of DATA.tasks.
+# --------------------------------------------------------------------------
+
+
+def get_task_list() -> list[data_loader.Task]:
+    return DATA.tasks
+
+
+def _build_task_from_input(body: AddTaskIn) -> data_loader.Task:
+    due_at = datetime.combine(
+        date.fromisoformat(body.due_date), time.fromisoformat(body.due_time), tzinfo=WINDOW_START.tzinfo
+    )
+    # "chat-" prefix keeps these visibly distinct from test-data.json's own
+    # hand-authored ids (e.g. "mf-hw3-due") in any log/debug output, without
+    # needing a real id registry -- a UUID fragment is enough entropy that
+    # two tasks added in the same session never collide.
+    task_id = f"chat-{uuid.uuid4().hex[:10]}"
+    return data_loader.Task(
+        id=task_id, course_id=body.course_id, title=body.title, due_at=due_at,
+        est_duration_min=body.est_duration_min, est_duration_is_guess=False,
+        splittable=(len(body.session_plan) > 1 if body.session_plan else body.splittable),
+        status="not_started", notes="Added via chat", session_plan=body.session_plan,
+    )
+
+
+def _task_response(action: str, task: data_loader.Task, resolve: bool, store: PreferenceStore) -> TaskCallResponse:
+    summary = None
+    if resolve:
+        global _LAST_SOLVE
+        _LAST_SOLVE = _run_solve_for_student(store.to_preferences())
+        summary = SolveSummary(
+            status=_LAST_SOLVE.status, objective_value=_LAST_SOLVE.objective_value,
+            best_bound=_LAST_SOLVE.best_bound, gap_pct=_LAST_SOLVE.gap_pct,
+            solve_seconds=_LAST_SOLVE.solve_seconds,
+            placed_count=len(_LAST_SOLVE.placed), unplaced_count=len(_LAST_SOLVE.unplaced),
+        )
+    return TaskCallResponse(
+        action=action, task_id=task.id, title=task.title, course_id=task.course_id,
+        due_at=task.due_at, est_duration_min=task.est_duration_min,
+        splittable=task.splittable, session_plan=task.session_plan, resolve=summary,
+    )
+
+
+@app.post("/tools/add_task", response_model=TaskCallResponse)
+def add_task(
+    body: AddTaskIn, resolve: bool = True,
+    tasks: list = Depends(get_task_list), store: PreferenceStore = Depends(get_preference_store),
+) -> TaskCallResponse:
+    if body.course_id not in DATA.courses:
+        raise HTTPException(status_code=422, detail=f"Unknown course_id {body.course_id!r}")
+    new_task = _build_task_from_input(body)
+    tasks.append(new_task)
+    return _task_response("created", new_task, resolve, store)
+
+
+@app.post("/tools/remove_task", response_model=TaskCallResponse)
+def remove_task(
+    body: RemoveTaskIn, resolve: bool = True,
+    tasks: list = Depends(get_task_list), store: PreferenceStore = Depends(get_preference_store),
+) -> TaskCallResponse:
+    match = next((t for t in tasks if t.id == body.task_id), None)
+    if match is None:
+        raise HTTPException(status_code=404, detail=f"no task with id {body.task_id!r}")
+    tasks.remove(match)
+    return _task_response("removed", match, resolve, store)
 
 
 # --------------------------------------------------------------------------

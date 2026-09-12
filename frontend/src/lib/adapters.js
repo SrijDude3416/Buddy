@@ -74,10 +74,13 @@ export function toPlanView(payload) {
   });
 
   // "Goal" is a course — no goals collection, just an aggregation.
+  // `progress` (a completed-session-count ratio) used to live here, but its
+  // only reader (ClassLegend) now computes its own, differently-shaped
+  // measure directly — real elapsed clock time this week, not a completion
+  // count — since that needs a live "now" this static, read-once adapter
+  // doesn't have. See ClassLegend.jsx's own comment.
   const goals = courses.map((course) => {
     const courseTasks = tasks.filter((t) => t.courseId === course._id);
-    const courseSessions = courseTasks.flatMap((t) => t.sessions);
-    const done = courseSessions.filter((s) => s.completed).length;
     // The label, the countdown and the click target all have to describe the
     // *same* task — reading them off the next deadline rather than off whatever
     // task happened to sort first is what keeps "Coming up" honest when tapped.
@@ -89,7 +92,6 @@ export function toPlanView(payload) {
       id: course._id,
       title: course.name,
       code: course.code,
-      progress: courseSessions.length ? Math.round((done / courseSessions.length) * 100) : 0,
       deadlineLabel: nextTask?.title ?? 'Coursework',
       nextTaskId: nextTask?.id ?? null,
       daysAway: nextTask?.dueAt ? dayOffset(nextTask.dueAt, referenceDate) : null,

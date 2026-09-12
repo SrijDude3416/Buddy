@@ -12,8 +12,8 @@ just enough to keep the two from drifting apart silently.
 """
 from __future__ import annotations
 
-from datetime import datetime
-from typing import Literal
+from datetime import date, datetime
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -256,6 +256,76 @@ class SetCommitmentIn(ToolInput):
         if end_min - start_min < self.duration_minutes:
             raise ValueError("the window is narrower than duration_minutes -- nothing could fit in it")
         return self
+
+
+class AddTaskIn(ToolInput):
+    """Unlike every tool above, this doesn't touch `preferences` at all --
+    it creates a real `tasks` document (the thing decompose.py splits into
+    sessions and CP-SAT places), the same kind of thing
+    test-data/schedule_test_data.json seeds. The model still never chooses a
+    session's time; it only supplies task-level facts (course, deadline,
+    how much work, optionally how to break it up) -- the same "typed fields
+    in, solver decides placement" boundary every preference tool already
+    keeps, just for a different collection. See PREFERENCE_API.md's
+    add_task section."""
+
+    title: str = Field(min_length=1, max_length=120)
+    course_id: str = Field(min_length=1)
+    due_date: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$", examples=["2026-09-20"])
+    due_time: str = _time_field(default="23:59")
+    # Required unless session_plan is given, in which case it's DERIVED (the
+    # sum) rather than independently trusted -- one fewer number a caller
+    # could hand the solver that disagrees with what it's actually being
+    # asked to schedule.
+    est_duration_min: int | None = Field(default=None, ge=15, le=2400)
+    splittable: bool = True
+    # The "more creative structuring" this tool exists for: an explicit,
+    # ordered list of session lengths (minutes) instead of decompose.py's
+    # own equal-split guess -- e.g. [120, 120, 30] for "two 2-hour sessions
+    # then a 30-minute review". Deliberately NOT bounded by
+    # decompose.MAX_SESSION_MIN/MIN_SESSION_MIN (60/30) the way the default
+    # split is -- the whole point of this field is permission to ask for a
+    # structure the heuristic wouldn't produce on its own. 240 (4h) is a
+    # generous outer bound just to keep one entry from swallowing an entire
+    # day; 12 entries is generous for the same reason on the other axis.
+    session_plan: list[Annotated[int, Field(ge=15, le=240)]] | None = Field(default=None, min_length=1, max_length=12)
+
+    @field_validator("due_date")
+    @classmethod
+    def _real_calendar_date(cls, v: str) -> str:
+        date.fromisoformat(v)  # raises on e.g. "2026-02-30" -- the regex alone can't catch that
+        return v
+
+    @model_validator(mode="after")
+    def _duration_from_plan_or_explicit(self) -> "AddTaskIn":
+        if self.session_plan:
+            total = sum(self.session_plan)
+            if self.est_duration_min is not None and self.est_duration_min != total:
+                raise ValueError(
+                    f"est_duration_min ({self.est_duration_min}) doesn't match the sum of "
+                    f"session_plan ({total}) -- omit est_duration_min and let it be derived, "
+                    "or make the two agree"
+                )
+            self.est_duration_min = total
+        elif self.est_duration_min is None:
+            raise ValueError("est_duration_min is required when session_plan is not given")
+        return self
+
+
+class RemoveTaskIn(ToolInput):
+    task_id: str = Field(min_length=1)
+
+
+class TaskCallResponse(BaseModel):
+    action: Literal["created", "removed"]
+    task_id: str
+    title: str
+    course_id: str
+    due_at: datetime
+    est_duration_min: int
+    splittable: bool
+    session_plan: list[int] | None
+    resolve: "SolveSummary | None" = None  # None only if resolve=false was requested
 
 
 class RemovePreferenceIn(ToolInput):

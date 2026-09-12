@@ -64,21 +64,59 @@ def _round_to_slot(minutes: float) -> int:
     return max(SLOT_MINUTES, math.ceil(minutes / SLOT_MINUTES) * SLOT_MINUTES)
 
 
+def _session_title(base_title: str, index: int, total: int) -> str:
+    """Differentiate a multi-session task's sessions with a "(i of N)" suffix
+    -- REVERSED from this function's own earlier stance (every session of a
+    task used to share one bare title on purpose, on the theory that
+    position on the calendar already communicates it's ongoing multi-part
+    work). That held on the calendar grid, where position IS visible, but
+    not on TaskDetail's own session checklist, where four identical "Work on
+    HW3" rows in a plain vertical list genuinely can't be told apart without
+    opening each one. A single session (total == 1) is returned unchanged --
+    there's nothing to differentiate."""
+    return base_title if total <= 1 else f"{base_title} ({index} of {total})"
+
+
 def decompose_task(task: Task, course_code: str = "") -> list[Session]:
     """One task -> one or more Sessions, each a multiple of SLOT_MINUTES.
 
-    Every session of the same task shares one title, with no "(part i/N)"
-    suffix -- position on the calendar already communicates it's ongoing
-    multi-part work, and a real calendar (see backend/optimizer/README.md)
-    just repeats the bare title across sessions. `course_code` (e.g.
-    "15-151"), when given, is prefixed on -- Carlos's own calendar always
-    leads with the class number, and asked for it here for the same reason:
-    it's more readable at a glance than the activity alone.
+    Every session of a multi-session task gets a distinguishing "(i of N)"
+    suffix (`_session_title`) -- a single-session task's title is left bare.
+    `course_code` (e.g. "15-151"), when given, is prefixed on -- Carlos's own
+    calendar always leads with the class number, and asked for it here for
+    the same reason: it's more readable at a glance than the activity alone.
     """
     duration = task.est_duration_min
     title = humanize_title(task.title)
     if course_code:
         title = f"{course_code} {title}"
+
+    if task.session_plan:
+        # Explicit, caller-authored breakdown (add_task's session_plan --
+        # PREFERENCE_API.md's add_task) overrides the equal-split guess
+        # below entirely: someone already decided how many sessions and how
+        # long each one is (e.g. "two 2-hour sessions then a 30-minute
+        # review"), so there's nothing left for this function to compute
+        # except the one invariant every session in this file shares --
+        # round each length UP to the slot grid, never down (same reason
+        # _round_to_slot exists at all: underestimating a real sitting is an
+        # error, overestimating is harmless slack). MAX_SESSION_MIN/
+        # MIN_SESSION_MIN don't apply here on purpose -- the whole point of
+        # an explicit plan is permission to exceed the default one-hour cap
+        # (a deliberate 2-hour deep-work block) or go below the default
+        # 30-minute floor (a deliberate quick 15-minute review).
+        n = len(task.session_plan)
+        return [
+            Session(
+                id=f"{task.id}__s{i + 1}",
+                task_id=task.id,
+                course_id=task.course_id,
+                title=_session_title(title, i + 1, n),
+                duration_min=_round_to_slot(minutes),
+                due_at=task.due_at,
+            )
+            for i, minutes in enumerate(task.session_plan)
+        ]
 
     if not task.splittable or duration <= MAX_SESSION_MIN:
         return [
@@ -115,7 +153,7 @@ def decompose_task(task: Task, course_code: str = "") -> list[Session]:
                 id=f"{task.id}__s{i + 1}",
                 task_id=task.id,
                 course_id=task.course_id,
-                title=title,
+                title=_session_title(title, i + 1, num_sessions),
                 duration_min=this_len,
                 due_at=task.due_at,
             )

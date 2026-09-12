@@ -8,10 +8,11 @@
 // lanes rather than hiding one behind the other.
 // ---------------------------------------------------------------------------
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { Lock } from 'lucide-react';
 import { assignLanes, itemsForDay, visibleHourRange } from '../../lib/adapters.js';
 import { colorFor } from '../../lib/courseColors.js';
+import { hasEnded, startOfDay } from '../../lib/time.js';
 
 const PX_PER_HOUR = 56;
 const GUTTER = 52;
@@ -22,13 +23,19 @@ function hourLabel(hour) {
   return `${h} ${ampm}`;
 }
 
-function nowMinutes() {
-  const d = new Date();
-  return d.getHours() * 60 + d.getMinutes();
+function minutesIntoDay(date) {
+  return date.getHours() * 60 + date.getMinutes();
 }
 
-function Block({ entry, laneCount, startHour, colorMap, onOpenTask }) {
+function Block({ entry, laneCount, startHour, colorMap, onOpenTask, now }) {
   const { item, lane } = entry;
+  // A session reads as "done" once its own slot has already passed, same as
+  // if the student had checked it off -- crossed out automatically, not
+  // waiting on a manual tap that may never come for something that already
+  // happened. `completed` itself is untouched (still the real, stored,
+  // user-controlled signal); this only changes how an unchecked-but-past
+  // session is drawn.
+  const isPast = !item.completed && item.type !== 'fixed' && hasEnded(item.end, now);
   const color = colorFor(colorMap, item.courseId);
   const top = ((item.minutesIntoDay - startHour * 60) / 60) * PX_PER_HOUR;
   const height = Math.max(20, (item.durationMin / 60) * PX_PER_HOUR - 2);
@@ -81,7 +88,7 @@ function Block({ entry, laneCount, startHour, colorMap, onOpenTask }) {
       <span className="px-1.5 py-1 min-w-0 flex-1">
         <span
           className={`block text-[11px] font-medium truncate ${
-            item.completed ? 'line-through opacity-60' : ''
+            item.completed || isPast ? 'line-through opacity-60' : ''
           } ${color.text}`}
         >
           {item.action}
@@ -92,19 +99,15 @@ function Block({ entry, laneCount, startHour, colorMap, onOpenTask }) {
   );
 }
 
-function DayColumn({ plan, offset, startHour, endHour, colorMap, onOpenTask, isToday }) {
+function DayColumn({ plan, offset, startHour, endHour, colorMap, onOpenTask, isToday, nowDate }) {
   const items = itemsForDay(plan, offset);
   const { placed, laneCount } = useMemo(() => assignLanes(items), [items]);
   const hours = endHour - startHour;
-  const [now, setNow] = useState(nowMinutes);
-
-  // Keep the "now" line honest without re-rendering constantly.
-  useEffect(() => {
-    if (!isToday) return undefined;
-    const id = setInterval(() => setNow(nowMinutes()), 60000);
-    return () => clearInterval(id);
-  }, [isToday]);
-
+  // Derived from the one shared clock CalendarView already ticks for every
+  // column's isPast check (Block, below) -- used to have its own separate
+  // useState/setInterval here, one per rendered day column (up to 7 running
+  // at once in week view), all computing the same real-world minute.
+  const now = minutesIntoDay(nowDate);
   const showNow = isToday && now >= startHour * 60 && now <= endHour * 60;
 
   return (
@@ -136,6 +139,7 @@ function DayColumn({ plan, offset, startHour, endHour, colorMap, onOpenTask, isT
           startHour={startHour}
           colorMap={colorMap}
           onOpenTask={onOpenTask}
+          now={nowDate}
         />
       ))}
 
@@ -146,7 +150,7 @@ function DayColumn({ plan, offset, startHour, endHour, colorMap, onOpenTask, isT
   );
 }
 
-export function CalendarView({ plan, days, selectedOffset, onSelectDay, onOpenTask }) {
+export function CalendarView({ plan, days, selectedOffset, onSelectDay, onOpenTask, now: nowDate }) {
   const offsets = days.map((d) => d.offset);
   const { startHour, endHour } = useMemo(() => visibleHourRange(plan, offsets), [plan, offsets.join(',')]);
   const hours = endHour - startHour;
@@ -212,7 +216,17 @@ export function CalendarView({ plan, days, selectedOffset, onSelectDay, onOpenTa
               endHour={endHour}
               colorMap={plan.colorMap}
               onOpenTask={onOpenTask}
-              isToday={!plan.windowStart && day.offset === 0}
+              // Real calendar-date comparison, not `!plan.windowStart` (the
+              // demo's own fixed WINDOW_START anchor always sets
+              // `plan.windowStart`, which made this ALWAYS false -- the "now"
+              // line was silently dead every time real backend data was
+              // loaded, only ever appearing against the mock-data fallback).
+              // `day.date` is real too (`horizonDays`, anchored off
+              // `plan.windowStart` but still a real calendar date), so a
+              // plain same-day comparison against the live clock is correct
+              // regardless of which anchor produced it.
+              isToday={startOfDay(day.date).getTime() === startOfDay(nowDate).getTime()}
+              nowDate={nowDate}
             />
           ))}
         </div>

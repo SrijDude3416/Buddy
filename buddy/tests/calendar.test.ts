@@ -22,7 +22,7 @@ test('OpenAI calls existing preference tools, Python receives saved state, and o
     requests++;
     const body = JSON.parse(init!.body as string);
     if (String(input).endsWith('/responses')) {
-      assert.deepEqual(body.tools.map((t: any) => t.name), ['set_preferred_work_hours', 'set_daily_workload_limit', 'protect_time_block', 'set_break_habits', 'set_task_spacing', 'set_urgency_emphasis', 'set_minimum_gap', 'set_meal_window', 'set_commitment', 'remove_preference', 'list_current_preferences']);
+      assert.deepEqual(body.tools.map((t: any) => t.name), ['set_preferred_work_hours', 'set_daily_workload_limit', 'protect_time_block', 'set_break_habits', 'set_task_spacing', 'set_urgency_emphasis', 'set_minimum_gap', 'set_meal_window', 'set_commitment', 'add_task', 'remove_task', 'remove_preference', 'list_current_preferences']);
       assert.ok(!JSON.stringify(body.tools).includes('MOVE_EVENT'));
       return json(aiResponse());
     }

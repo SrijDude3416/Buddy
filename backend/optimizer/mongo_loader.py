@@ -133,6 +133,11 @@ def load_data(user_id: str = DEMO_USER_ID) -> data_loader.ScheduleData:
             splittable=t["splittable"],
             status=t["status"],
             notes="",
+            # Only chat-added tasks (mongo_state.save_new_tasks) ever set
+            # this; every seed_mongo.py-imported task has no such key, and
+            # .get() defaulting to None reproduces the same "let
+            # decompose.py's own heuristic decide" behavior they've always had.
+            session_plan=t.get("session_plan"),
         )
         for t in task_docs
     ]

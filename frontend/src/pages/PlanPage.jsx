@@ -20,6 +20,7 @@ import { ErrorNotice } from '../components/ui/ErrorNotice.jsx';
 import { horizonDays } from '../lib/time.js';
 import { itemsForDay } from '../lib/adapters.js';
 import { usePlan } from '../state/PlanProvider.jsx';
+import { useNow } from '../hooks/useNow.js';
 
 const RANGE_TABS = [
   { key: 'week', label: 'Week' },
@@ -42,6 +43,10 @@ export function PlanPage({ onOpenTask }) {
   const [range, setRange] = useState('week');
   const [selectedOffset, setSelectedOffset] = useState(0);
   const [weekStart, setWeekStart] = useState(0);
+  // One shared clock for the calendar's "now" line/auto-cross-out and the
+  // class panel's "how far through this week" bars -- both read the same
+  // live time rather than each keeping its own.
+  const now = useNow();
 
   const allDays = useMemo(() => horizonDays(14, plan.windowStart ? new Date(plan.windowStart) : new Date()).map(d => plan.windowStart ? { ...d, label: d.date.toLocaleDateString('en-US', { weekday: 'short' }) } : d), [plan.windowStart]);
   const weekDays = useMemo(
@@ -119,8 +124,9 @@ export function PlanPage({ onOpenTask }) {
           selectedOffset={selectedOffset}
           onSelectDay={setSelectedOffset}
           onOpenTask={onOpenTask}
+          now={now}
         />
-        <ClassLegend plan={plan} selectedOffset={selectedOffset} dayLabel={selectedDay.label} />
+        <ClassLegend plan={plan} weekOffsets={weekDays.map((d) => d.offset)} now={now} />
       </div>
 
       <div>

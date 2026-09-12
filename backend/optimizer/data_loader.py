@@ -57,6 +57,14 @@ class Task:
     splittable: bool
     status: str  # not_started | in_progress | done
     notes: str = ""
+    # An explicit, caller-authored session breakdown -- e.g. [120, 120, 30]
+    # for "two 2-hour sessions then a 30-minute review". None (the default,
+    # and the only value every pre-existing task has) means "let
+    # decompose.py's own equal-split heuristic decide", unchanged from
+    # before this field existed. Set by add_task (api_models.AddTaskIn) when
+    # a chat message asks for a specific structure instead of the default
+    # guess -- decompose.py is the only other place this is read.
+    session_plan: list[int] | None = None
 
     @property
     def is_done(self) -> bool:
