@@ -342,6 +342,18 @@ actual, running code — no longer just a sketch):
   directly; fixed/personal/course blocks are restricted only by not overlapping
   other intervals, never by time-of-day. General lesson: a mandatory mutual-exclusion
   interval is only safe when nothing legitimately fixed can ever sit inside it.
+- **Two *constant* mandatory intervals that overlap lose the whole schedule, not
+  one of the blocks.** The same trap as the working-hours blackout above, one
+  level down: personal routine blocks (gym, meals) and course blocks are both
+  materialized at fixed times, so `AddNoOverlap` can't shift either — it just
+  reports `INFEASIBLE`. This was invisible while courses came from test-data,
+  whose meeting times were hand-chosen never to clash with `ROUTINE`, and became
+  reachable the moment real catalog class times arrived: a 12:00–13:20 lecture
+  against a 12:00–12:45 lunch killed the entire solve. Fixed by having the
+  routine block yield to the class (`scheduler.py`), since a lecture is the
+  genuinely immovable one of the pair. The general rule: whenever two constant
+  intervals can meet, decide *in advance* which one gives way — infeasibility is
+  the solver's only other answer, and it is never the one you want.
 - A flexible session's start variable is domain-bounded by its deadline
   (`latest_start = deadline_slot - duration_slots`, slots = 15 minutes) — infeasibility
   here means "this genuinely can't be scheduled in time," which is worth surfacing, not

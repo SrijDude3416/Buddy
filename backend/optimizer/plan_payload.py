@@ -7,7 +7,15 @@ def to_plan_payload(result, data, window_start, window_days, preferences, solve_
     def wall(dt):
         return dt.replace(tzinfo=None).isoformat(timespec="seconds")
 
-    courses = [{"_id": c.id, "code": format_course_code(c.name) or c.id, "name": c.name}
+    # meeting_times travels with the plan so a caller that supplied a course
+    # (preference_pipeline.CourseOverride -- a student's own lecture section) can
+    # hand the same course back on the next solve. Without it, a re-solve driven
+    # by chat would send a course id this service never loaded at startup and be
+    # told "Unknown course ID", silently losing the class blocks.
+    courses = [{"_id": c.id, "code": format_course_code(c.name) or c.id, "name": c.name,
+                "meeting_times": [{"days": mt.days, "start_time": mt.start_time,
+                                   "end_time": mt.end_time, "location": mt.location}
+                                  for mt in c.meeting_times]}
                for c in data.courses.values()]
     tasks = [{"_id": t.id, "course_id": t.course_id, "display_title": t.title,
               "source_assignment": t.title, "status": t.status, "due_at": wall(t.due_at),

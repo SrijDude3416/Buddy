@@ -116,6 +116,61 @@ to it, so deleting an account immediately invalidates its cookie. Without it the
 signed cookie is the whole user record — fine for a demo, and the tradeoffs are
 spelled out at the top of `buddy/lib/auth/users.ts`.
 
+### The class catalog cluster
+
+The class list in onboarding's **Customize** picker comes from a `schedule`
+collection in a **separate** Atlas account from the one above — one document per
+class, carrying `course_id`, `course_title`, and `lecture`/`recitation` arrays of
+sections (`subcategory`, `days`, `begin_time`, `end_time`, building, room,
+instructors). It has its own variables in `buddy/.env.local` (template in
+`buddy/.env.example`) precisely so it can never be confused with `MONGODB_URI`:
+
+```
+SCHEDULE_MONGODB_URI=
+SCHEDULE_MONGODB_DB=
+SCHEDULE_MONGODB_COLLECTION=schedule
+```
+
+Check the connection before touching the UI:
+
+```bash
+node --env-file=buddy/.env.local buddy/scripts/check-schedule.mjs
+```
+
+The same Network Access caveat from step 2 above applies. If the cluster isn't
+configured or isn't reachable, `GET /api/courses` serves the built-in list from
+`test-data/schedule_test_data.json` instead — but says so, in the response's
+`source` field, in a server log line, and in a note under the picker itself. The
+demo never goes down over this, and it never silently pretends either.
+
+### Sections, and how class times reach the calendar
+
+Roughly a third of the catalog's courses offer more than one lecture or recitation,
+so the class question asks which section is yours — inline, as part of picking the
+class, not as a sixth onboarding question. A course with exactly one option is
+resolved silently; Continue waits only on genuine forks.
+
+The picked sections' meeting times travel to the optimizer as `courses` on
+`POST /preferences/operations` (`preference_pipeline.CourseOverride`), which is new:
+the solver previously only knew the courses it loaded at startup and rejected any
+other id. They come back on `plan.courses[].meeting_times`, which is what lets a
+chat-driven re-solve hand the same course straight back instead of losing its class
+blocks. Sections are resolved from Mongo server-side — the browser only ever sends
+section ids, so it can't inject arbitrary blocks into a solve.
+
+Two deliberate limits:
+
+- **These courses have no assignment data**, so a plan built from them shows your
+  real timetable and no study sessions. That's stated rather than papered over with
+  invented coursework.
+- **Doha sections are filtered out.** The catalog covers every CMU campus, and a
+  Qatar section's Sun–Thu week describes a different student's semester.
+
+Picking two classes that meet at the same hour returns a 400 naming both. That
+would otherwise reach CP-SAT as two immovable overlapping intervals and come back
+as a bare `INFEASIBLE` for the whole schedule — see the note in `scheduler.py`
+about why a routine block now yields to a class.
+
 ## Try it
 
 1. Confirm the default preferences or customize your selected courses and focus hours.

@@ -2,7 +2,7 @@ import type { Plan } from '../lib/plan';
 export const call = { name: 'set_preferred_work_hours' as const, arguments: { start_time: '17:00', end_time: '23:00', strength: 'moderate' } };
 // Minimal transport fixture only; real placement is covered against Python in browser tests.
 export const plan: Plan = {
-  courses: [{ _id: 'c1', name: 'Course', code: 'C1' }], tasks: [], sessions: [],
+  courses: [{ _id: 'c1', name: 'Course', code: 'C1', meeting_times: [] }], tasks: [], sessions: [],
   preferences: [], windowStart: '2026-09-12T00:00:00', windowDays: 14,
   run: { status: 'solved', engine: 'CP-SAT', solverStatus: 'FEASIBLE', objective_value: 10, best_bound: 11, gap: 0.1, solve_seconds: 1 }, unplaced: [],
 };

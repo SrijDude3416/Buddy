@@ -10,6 +10,20 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Check, ChevronDown, Search, X } from 'lucide-react';
 import { Spinner } from './Spinner.jsx';
 
+/**
+ * The catalog's optional detail line. A course from the Atlas `schedule` collection
+ * carries only an id and a title, so every part here can be absent — collect what
+ * exists rather than rendering "null · null units".
+ */
+function detailLine(course) {
+  const parts = [];
+  if (course.department) parts.push(course.department);
+  if (course.units) parts.push(`${course.units} units`);
+  const meetings = course.meeting_times?.length ?? 0;
+  if (meetings) parts.push(`${meetings} weekly meeting${meetings === 1 ? '' : 's'}`);
+  return parts.join(' · ');
+}
+
 export function CourseSelect({ courses, selectedIds, onToggle, onRemove, loading, disabled }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
@@ -43,8 +57,8 @@ export function CourseSelect({ courses, selectedIds, onToggle, onRemove, loading
     if (!q) return courses;
     return courses.filter(
       (c) =>
-        c.code.toLowerCase().includes(q) ||
-        c.name.toLowerCase().includes(q) ||
+        (c.code ?? '').toLowerCase().includes(q) ||
+        (c.name ?? '').toLowerCase().includes(q) ||
         (c.department ?? '').toLowerCase().includes(q),
     );
   }, [courses, query]);
@@ -82,7 +96,7 @@ export function CourseSelect({ courses, selectedIds, onToggle, onRemove, loading
               key={course._id}
               className="inline-flex items-center gap-1.5 pl-2.5 pr-1.5 py-1 rounded-full text-sm bg-emerald-700 text-white"
             >
-              <span className="font-medium">{course.code}</span>
+              {course.code && <span className="font-medium">{course.code}</span>}
               <span className="max-w-32 truncate opacity-90">{course.name}</span>
               <button
                 type="button"
@@ -154,12 +168,14 @@ export function CourseSelect({ courses, selectedIds, onToggle, onRemove, loading
                     </span>
                     <span className="min-w-0">
                       <span className="block text-sm text-stone-900 dark:text-stone-100">
-                        <span className="font-medium">{course.code}</span> · {course.name}
+                        {course.code && <><span className="font-medium">{course.code}</span> · </>}
+                        {course.name}
                       </span>
-                      <span className="block text-xs text-stone-500 dark:text-stone-400">
-                        {course.department} · {course.units} units · {course.meeting_times.length} weekly meeting
-                        {course.meeting_times.length === 1 ? '' : 's'}
-                      </span>
+                      {detailLine(course) && (
+                        <span className="block text-xs text-stone-500 dark:text-stone-400">
+                          {detailLine(course)}
+                        </span>
+                      )}
                     </span>
                   </button>
                 </li>
