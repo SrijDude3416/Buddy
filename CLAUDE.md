@@ -80,7 +80,9 @@ violates one of these as a regression, not a simplification, even if it looks cl
 /frontend            React + Tailwind app (see "Frontend" below)
 /backend
   /api                Next.js API routes
-  /optimizer          CP-SAT model + preference compiler registry (Python)
+  /optimizer          CP-SAT model + preference compiler registry (Python) — deployed
+                      as its own standalone service, not a Vercel function; see
+                      "Scheduling engine (CP-SAT)" below
   /pipeline           Canvas scraping + syllabus parsing (per-semester job)
 SCHEMA.md            MongoDB schema — source of truth for collection shapes
 CLAUDE.md            this file
@@ -181,6 +183,22 @@ answers or chat history needs a second copy — `preferences` entries with `sour
 
 ## Scheduling engine (CP-SAT)
 
+**Deployment**: the optimizer is not a Vercel Python serverless function. OR-Tools' CP-SAT
+binary is heavy enough (native wheel size, cold start) and a solve can occasionally run long
+enough that it's a poor fit for serverless size/timeout limits — and a serverless function
+can't hold any state between calls anyway. It runs as its own always-on FastAPI service
+(Railway/Render/Fly.io-class host, not Vercel), called over plain HTTP by the Next.js
+backend, same as any other third-party API.
+
+**Time horizon**: solves run on a rolling weekly window in 15-minute slots, not the whole
+semester up front. This falls directly out of the feedback loop being the core UX
+(chat feedback → new `preferences` entry → re-solve): a semester-wide solve is slower to
+re-run on every message and, worse, could reshuffle sessions far outside the window the
+feedback was even about — including ones already `completed` or `locked`. Deadlines beyond
+the current window still constrain the solve, but only as a rough "hours still owed to this
+task/course" capacity reservation, not slot-level placement — the slot-level plan for a
+future week doesn't exist until that week's own solve runs.
+
 Two-stage pipeline, deliberately kept separate:
 
 1. **Task → session decomposition** (heuristic, not solved). Given a task's total
@@ -190,7 +208,7 @@ Two-stage pipeline, deliberately kept separate:
    classic placement problem instead of a much harder joint splitting-and-placement
    problem, which matters for keeping re-solves fast enough to run on every chat message.
 2. **Placement** (CP-SAT). Given already-sized sessions, immovable fixed blocks, and a
-   set of preferences, decide start times.
+   set of preferences, decide start times within the current week's window.
 
 Core mechanics (see `scheduler_core.py` for the actual code):
 
@@ -198,8 +216,9 @@ Core mechanics (see `scheduler_core.py` for the actual code):
   `AddNoOverlap` over that list is the *only* mechanism needed for "class times are
   immovable." No special-casing elsewhere.
 - A flexible session's start variable is domain-bounded by its deadline
-  (`latest_start = deadline_slot - duration_slots`) — infeasibility here means "this
-  genuinely can't be scheduled in time," which is worth surfacing, not hiding.
+  (`latest_start = deadline_slot - duration_slots`, slots = 15 minutes) — infeasibility
+  here means "this genuinely can't be scheduled in time," which is worth surfacing, not
+  hiding.
 - **Preference compiler registry**: each preference `type` has exactly one
   hand-written, unit-testable compiler function that turns `(value, weight)` into
   either a hard constraint or a list of bounded `(coefficient, BoolVar)` objective
