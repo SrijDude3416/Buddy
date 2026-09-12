@@ -72,7 +72,7 @@ def build_and_solve(
     preferences: list[Preference] = (),
     personal_blocks: list[MeetingTime] = (),
     now_slot: int = 0,
-    max_time_in_seconds: float = 10.0,
+    max_time_in_seconds: float = 15.0,  # bumped from 10 -- see README.md's "Round 4" on solve-time variance
 ) -> SolveResult:
     total_slots = window_days * SLOTS_PER_DAY
     window_end = window_start + timedelta(days=window_days)
@@ -169,6 +169,25 @@ def build_and_solve(
     sessions = decompose_all(data.tasks, data.courses) + generate_review_sessions(
         data.courses, window_start, window_days
     )
+
+    # Urgency per task ("critical ratio"-style): remaining work per hour of
+    # runway until due. A task's sessions all share one due_at, so summing
+    # over every session with this task_id (in-window or not -- a task is
+    # never split across both) gives its true total remaining work. Review
+    # sessions are excluded; their own not_before/due_at already pin them
+    # tightly to right-after-class, they don't need urgency weighting too.
+    task_total_minutes: dict[str, int] = {}
+    task_due_at: dict[str, datetime] = {}
+    for sess in sessions:
+        if sess.task_id.startswith("review_"):
+            continue
+        task_total_minutes[sess.task_id] = task_total_minutes.get(sess.task_id, 0) + sess.duration_min
+        task_due_at[sess.task_id] = sess.due_at
+    task_urgency = {
+        task_id: round(10 * total_min / max(1.0, (task_due_at[task_id] - window_start).total_seconds() / 3600))
+        for task_id, total_min in task_total_minutes.items()
+    }
+
     session_vars: dict[str, tuple[cp_model.IntervalVar, cp_model.IntVar, Session]] = {}
     session_ctxs: list[SessionCtx] = []
     out_of_window: list[Session] = []
@@ -234,6 +253,7 @@ def build_and_solve(
         "total_slots": total_slots,
         "day0_weekday": window_start.weekday(),  # 0=Mon..6=Sun, for weekday-scoped preferences
         "course_lecture_ends": course_lecture_ends,
+        "task_urgency": task_urgency,
         "all_intervals": all_intervals,  # compilers may append (e.g. avoid_block)
         "extra_no_overlap_groups": [],
     }

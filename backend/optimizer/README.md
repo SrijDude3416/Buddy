@@ -276,6 +276,75 @@ kind-mislabeling bug is fixed, not a hidden one), busiest day 765min ->
 390min, 0 back-to-back violations, and both new hard rules verified against
 the actual output at zero violations. See `schedule_preview.html`.
 
+## Round 4: urgency, and the two-hour rule going soft
+
+Carlos flagged two things after looking at Round 3's output: same-course
+tasks getting worked back-to-back regardless of how urgent they actually
+were, and -- concretely -- a huge, imminent assignment (HW3, 10.75 hours,
+due inside a week) getting interleaved with unrelated reading due a week
+later instead of getting knocked out first. He also asked to replace the
+hard two-hour-without-a-break rule with something softer: minimize the
+longest unbroken stretch, rather than forbid exceeding a fixed number.
+
+**`urgency_priority`, a new preference**: rewards a session starting earlier
+in proportion to its own task's *real* urgency -- remaining work (minutes)
+per hour of runway until the deadline, a "critical ratio"-style score
+computed once in Python (`scheduler.py`, from the actual `Task` list, not
+per-session) and looked up per session in the compiler. HW3's score comes
+out roughly 30x a typical distant reading's, so it isn't just "prefer
+earlier" applied to everything -- it's a real gradient by actual stakes.
+
+**First attempt reintroduced the exact bug this journal already has a name
+for.** The initial version rewarded earliness via `-start` (the session's
+absolute 15-minute slot), same mistake as the original day-one-cramming
+tie-break two rounds ago, just in a new preference. Consequence this time
+was worse than cosmetic: a single urgent session's reward could exceed
+`PRESENCE_WEIGHT` itself, meaning the solver would rather leave some
+*unrelated* session completely unplaced than accept a slightly-later start
+for an urgent one -- a genuinely broken tier order (tier 2 overriding tier
+1). Sessions placed dropped from 70 to 61 before this was caught. Fixed the
+same way as before: reward `-day` (range ~14) instead of `-start` (range
+~1300), which keeps even a very large urgency score safely inside tier 2.
+**General lesson, now proven true twice:** any objective term built from a
+session's own `start`/`minute_of_day` needs its actual numeric range sanity
+checked against `PRESENCE_WEIGHT`, every single time, not just the first.
+
+**`max_continuous_work` rewritten from a hard cap to a soft minimize.** Same
+streak-chain machinery as before (still excluding review sessions for
+cost), but instead of `streak[i] <= cap` as a hard constraint, `max_streak =
+max(all streaks)` becomes an objective term the solver minimizes -- default
+break threshold raised to 45 minutes per Carlos's suggestion. This is a
+better fit for what's actually wanted: an absolute cap can only ever satisfy
+itself by refusing to place a session outright when a big deadline
+genuinely needs a long push, which is worse than occasionally allowing one.
+
+**The weight needed real tuning, not a guess.** Tried 20, 60, 120: the worst
+streak stayed around 210-240 minutes regardless -- urgency and the
+after-class bonus simply won every tradeoff against a soft goal that weak.
+500 brought it to 120; 1000 to 90-150 (run-to-run variance -- see below)
+with *zero* cost to sessions placed or to urgency's own job (HW3 still
+finished a day-plus early). 3000 started measurably costing something real:
+HW3's last session got pushed to right before its own deadline instead of
+comfortably ahead of it. Landed on 1000 -- inside the range that has real
+teeth without eating the thing it's trading off against.
+
+**A genuine, not-fully-resolved finding: solve-time variance got worse.**
+Nine preferences deep, the exact same weights produced meaningfully
+different results a few seconds apart -- a 210-minute worst streak at one
+budget, 90 minutes at another, CP-SAT's own gap sitting around 0.1-0.3%
+rather than the near-zero this prototype saw with fewer preferences active.
+Bumped the default `max_time_in_seconds` from 10 to 15, which helps but
+doesn't eliminate this. Don't treat any single run's exact numbers (busiest
+day, worst streak) as precise -- they're representative, not deterministic,
+at the current preference count and time budget.
+
+**Still open**: the same-course-adjacency complaint may be partly explained
+by legitimate urgency (a course with its own imminent deadline pressure
+naturally producing several of its own sessions close together is arguably
+correct, not a bug), but it hasn't been re-examined carefully against the
+urgency fix yet -- worth another look at the actual output before deciding
+whether a dedicated same-course-spacing preference is still needed on top.
+
 ## Known gaps, not yet built
 
 - Exam/fixed-time tasks aren't materialized as locked blocks (see above) --

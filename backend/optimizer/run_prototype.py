@@ -59,7 +59,16 @@ PROFILES: dict[str, list[Preference]] = {
         Preference("spread_multi_session_tasks", {}, weight=25),
         Preference("avoid_block", {"days": ["Fri", "Sat"], "start": "19:00", "end": "24:00"}, weight=0),  # hard
         Preference("after_class_bonus", {"minutes": 90}, weight=15),
-        Preference("max_continuous_work", {"minutes": 120, "break_minutes": 30}, weight=0),  # hard
+        # Soft now, not a hard cap -- weight tuned empirically (see README.md):
+        # 20-120 barely moved the worst streak at all (urgency_priority and
+        # after_class_bonus simply won every tradeoff against it), 500-1000
+        # brought it from 210min down to 90min with no cost to sessions
+        # placed or to urgency_priority's actual job (HW3 still finishes a
+        # full day ahead of its deadline), and 3000 started measurably
+        # eating into that -- HW3's last session got pushed to just before
+        # its own deadline. 1000 is comfortably inside the good range.
+        Preference("max_continuous_work", {"break_minutes": 45}, weight=1000),
+        Preference("urgency_priority", {}, weight=8),
     ],
 }
 

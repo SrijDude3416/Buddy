@@ -241,22 +241,25 @@ def _compile_after_class_bonus(model, pref, sessions, ctx):
 
 
 def _compile_max_continuous_work(model, pref, sessions, ctx):
-    """Hard constraint: cap any unbroken run of flexible work -- sessions
-    chained by gaps under `break_minutes` -- at `minutes` total ("never work
-    without a break for more than two hours straight").
+    """Soft: minimize the single longest unbroken run of flexible work in the
+    whole schedule -- sessions chained by gaps under `break_minutes` count as
+    one continuous run. Carlos's own reframe of "never work more than two
+    hours without a break": a hard cap could only ever satisfy itself by
+    dropping a session outright when a big, urgent deadline genuinely needs
+    a long push, which is worse than occasionally allowing one. Minimizing
+    the worst streak instead lets the solver trade a longer streak off
+    against everything else in the objective, same as any other preference.
 
-    No separate same-day check is needed: every flexible session is already
-    bounded to a single day's working hours (see scheduler.py), so crossing
-    from one day into the next always means an overnight gap far larger than
-    any real break threshold -- a small gap is, by construction, same-day.
+    No same-day check is needed: every flexible session is already bounded
+    to a single day's working hours (see scheduler.py), so crossing from one
+    day into the next always means an overnight gap far larger than any real
+    break threshold -- a small gap is, by construction, same-day.
 
-    For each session i, `streak[i]` is the true (uncapped) cumulative
-    work-minutes ending at i: either just i's own duration, or -- for
-    whichever other present session j chains directly into i (ends within
-    `break_minutes` of i's start) -- streak[j] + i's duration. Only the cap
-    check itself (`streak[i] <= cap`) is a hard bound; streak's own domain is
-    left uncapped so a chain that *would* exceed the limit is actually
-    forbidden, not silently clamped down to a value that passes.
+    For each session i, `streak[i]` is the true cumulative work-minutes
+    ending at i: either just i's own duration, or -- for whichever other
+    present session j chains directly into i (ends within `break_minutes` of
+    i's start) -- streak[j] + i's duration. `max_streak` is the max over
+    every session's streak; the objective term penalizes it directly.
     """
     # Review-notes sessions are excluded: they're a light, class-anchored
     # 30-minute activity, not the grinding work this rule protects against,
@@ -264,9 +267,11 @@ def _compile_max_continuous_work(model, pref, sessions, ctx):
     # review sessions out of ~100 total sessions took real solve time down
     # meaningfully (see README.md for the actual before/after numbers).
     sessions = [s for s in sessions if not s.task_id.startswith("review_")]
+    if not sessions:
+        return []
 
-    cap_slots = pref.value["minutes"] // ctx["slot_minutes"]
-    break_slots = max(1, pref.value.get("break_minutes", 30) // ctx["slot_minutes"])
+    break_slots = max(1, pref.value.get("break_minutes", 45) // ctx["slot_minutes"])
+    weight = round(pref.weight)
 
     streak = {s.session_id: model.NewIntVar(0, ctx["total_slots"], f"streak_{s.session_id}") for s in sessions}
 
@@ -287,8 +292,50 @@ def _compile_max_continuous_work(model, pref, sessions, ctx):
             model.Add(candidate == 0).OnlyEnforceIf(chained.Not())
             candidates.append(candidate)
         model.AddMaxEquality(streak[i.session_id], candidates)
-        model.Add(streak[i.session_id] <= cap_slots).OnlyEnforceIf(i.presence)
-    return []
+
+    max_streak = model.NewIntVar(0, ctx["total_slots"], "max_streak")
+    model.AddMaxEquality(max_streak, list(streak.values()))
+    return [(-weight, max_streak)]
+
+
+def _compile_urgency_priority(model, pref, sessions, ctx):
+    """Reward placing a task's sessions earlier, scaled by how urgent that
+    task actually is (`ctx["task_urgency"]`, minutes of remaining work per
+    hour of runway until its deadline -- see scheduler.py). Without this,
+    nothing distinguishes "a big assignment due in 2 days" from "a 20-minute
+    reading due in 2 weeks" once both are merely in-scope; the solver has no
+    reason to prefer finishing the former over idly picking up the latter,
+    which is exactly the "why is it working on next week's reading instead
+    of the huge thing due Wednesday" complaint this exists to fix.
+
+    This is deliberately NOT the old blanket "-start" tie-break that caused
+    the original day-one cramming bug (see git history) -- that pulled
+    *everything* earlier regardless of need. This only pulls a session
+    earlier in proportion to its own task's real urgency, computed once in
+    Python from actual remaining work and actual time left, not applied
+    uniformly.
+
+    Uses `-day`, not `-start`: this is the same lesson from that same old
+    bug, applied again. `-start` ranges over ~1300 slots -- multiplied by a
+    real urgency score (tens) and PREF_SCALE, a single urgent session's
+    reward can exceed PRESENCE_WEIGHT itself, meaning the solver would
+    rather leave some OTHER, unrelated session unplaced than accept a
+    slightly-later start for the urgent one. That's a broken tier order
+    (this is tier 2 material, not license to override tier 1). `-day` caps
+    the range at `window_days` (~14), keeping this safely inside tier 2
+    regardless of how large a real urgency score gets.
+    """
+    weight = round(pref.weight)
+    terms = []
+    for s in sessions:
+        urgency = ctx["task_urgency"].get(s.task_id, 0)
+        if urgency <= 0:
+            continue
+        contribution = model.NewIntVar(-ctx["window_days"], 0, f"urgency_{s.session_id}")
+        model.Add(contribution == -s.day).OnlyEnforceIf(s.presence)
+        model.Add(contribution == 0).OnlyEnforceIf(s.presence.Not())
+        terms.append((weight * urgency, contribution))
+    return terms
 
 
 REGISTRY: dict[str, Callable] = {
@@ -299,6 +346,7 @@ REGISTRY: dict[str, Callable] = {
     "avoid_block": _compile_avoid_block,
     "after_class_bonus": _compile_after_class_bonus,
     "max_continuous_work": _compile_max_continuous_work,
+    "urgency_priority": _compile_urgency_priority,
 }
 
 

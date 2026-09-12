@@ -275,6 +275,16 @@ actual, running code — no longer just a sketch):
   on `kind`. Get this wrong and a genuinely-lost session just disappears from every
   view instead of surfacing as "competed and lost," silently violating the "worth
   surfacing, not hiding" principle above.
+- **Any objective term built from a session's own `start`/`minute_of_day` needs its
+  numeric range checked against `PRESENCE_WEIGHT`, every time a new one is added, not
+  just the first.** This exact bug (an "earlier is better" term using the fine-grained
+  slot instead of the coarse day) has now shipped twice — once as the original
+  placeholder tie-break, once again in `urgency_priority`, where a single urgent
+  session's reward briefly exceeded `PRESENCE_WEIGHT` and made the solver sacrifice an
+  unrelated session's *placement* to chase it — a broken tier order, not just an
+  aesthetic tie-break failure. `-day` (range ~14) is safe by construction where
+  `-start`/`-minute_of_day` (range ~100-1300) is not. Check this before trusting a new
+  preference's behavior, don't wait to notice the symptom.
 
 **Open decision, not yet made**: preferences currently blend into one weighted sum,
 so a strong `avoid_block` penalty and a weak `preferred_hours` reward can trade off in
