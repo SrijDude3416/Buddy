@@ -102,8 +102,10 @@ def build_and_solve(
     preferences: list[Preference] = (),
     personal_blocks: list[MeetingTime] = (),
     locked_sessions: list[PlacedBlock] = (),
+    hint_placements: list[PlacedBlock] = (),
     now_slot: int = 0,
     max_time_in_seconds: float = 15.0,  # bumped from 10 -- see README.md's "Round 4" on solve-time variance
+    relative_gap_limit: float = 0.005,  # stop as soon as CP-SAT can PROVE it's within 0.5% of optimal; see the solver-setup comment below
     num_search_workers: int | None = None,  # None -> os.cpu_count(); see README.md's "Round 5" before hardcoding this
 ) -> SolveResult:
     total_slots = window_days * SLOTS_PER_DAY
@@ -292,6 +294,28 @@ def build_and_solve(
         )
         locked_ids.add(b.id)
 
+    # --- Solution hints: warm-start CP-SAT from wherever the PREVIOUS solve
+    # (typically still-in-the-future sessions from the cached plan a chat
+    # message is about to nudge) put things, via model.AddHint. This is
+    # different from locked_sessions above -- a hint is not a constraint,
+    # CP-SAT is free to move a hinted session anywhere the model actually
+    # prefers; it just gets to START its search from a near-feasible,
+    # near-optimal incumbent instead of from nothing. CLAUDE.md's core loop
+    # is chat feedback -> new preference -> re-solve, and each re-solve is
+    # almost always a small perturbation of a schedule that already exists
+    # -- re-deriving the whole week from scratch every message wastes the
+    # solve-time budget on rediscovering structure it already found last
+    # time. Keyed by the same placed-block id every other id-based lookup in
+    # this file uses (session id / meal_{meal}_{day} / commitment_{slug}_{day}),
+    # so it lines up with session_vars/meal_vars/commitment_vars without any
+    # extra bookkeeping. A hint whose id doesn't exist in this solve (task
+    # completed, preference removed the window it lived in, etc.) is simply
+    # never looked up -- AddHint is only ever called for a var that actually
+    # gets created below, and a stale/out-of-bounds hint is dropped rather
+    # than passed to CP-SAT (see each call site) -- an invalid hint is worse
+    # than no hint, since CP-SAT spends time validating and discarding it.
+    hint_by_id: dict[str, PlacedBlock] = {b.id: b for b in hint_placements if b.start is not None}
+
     # --- Meal windows: a `meal_window` preference (value: {meal, start, end,
     # duration_minutes}) is genuinely different from every other preference
     # type here -- not a SessionCtx-scoped reward/penalty term compiled via
@@ -326,11 +350,16 @@ def build_and_solve(
             if block_id in locked_ids:
                 continue  # already decided by a prior solve; see the locked_sessions loop above
             base = day * SLOTS_PER_DAY
-            start = model.NewIntVar(base + lo, base + hi - duration_slots, f"mealstart_{meal}_{day}")
+            start_lo, start_hi = base + lo, base + hi - duration_slots
+            start = model.NewIntVar(start_lo, start_hi, f"mealstart_{meal}_{day}")
             end = model.NewIntVar(base + lo + duration_slots, base + hi, f"mealend_{meal}_{day}")
             iv = model.NewIntervalVar(start, duration_slots, end, block_id)
             all_intervals.append(iv)
             meal_vars[block_id] = (start, end)
+            if hint := hint_by_id.get(block_id):
+                hint_start = slot_of(hint.start)
+                if start_lo <= hint_start <= start_hi:
+                    model.AddHint(start, hint_start)
 
     # --- Windowed commitments: the other half of `commitment` preferences
     # (mode == "windowed") -- day-scoped, same mandatory-but-movable
@@ -365,11 +394,16 @@ def build_and_solve(
             if block_id in locked_ids:
                 continue  # already decided by a prior solve; see the locked_sessions loop above
             base = day * SLOTS_PER_DAY
-            start = model.NewIntVar(base + lo, base + hi - duration_slots, f"commitstart_{slug}_{day}")
+            start_lo, start_hi = base + lo, base + hi - duration_slots
+            start = model.NewIntVar(start_lo, start_hi, f"commitstart_{slug}_{day}")
             end = model.NewIntVar(base + lo + duration_slots, base + hi, f"commitend_{slug}_{day}")
             iv = model.NewIntervalVar(start, duration_slots, end, block_id)
             all_intervals.append(iv)
             commitment_vars[block_id] = (start, end)
+            if hint := hint_by_id.get(block_id):
+                hint_start = slot_of(hint.start)
+                if start_lo <= hint_start <= start_hi:
+                    model.AddHint(start, hint_start)
 
     # --- Flexible sessions, decomposed from not-done tasks. Optional so an
     # individual session can come back "unplaced" instead of the whole solve
@@ -438,6 +472,17 @@ def build_and_solve(
         all_intervals.append(interval)
         session_vars[sess.id] = (interval, presence, start)
         model.Add(end == start + duration_slots)
+        if hint := hint_by_id.get(sess.id):
+            # A previous placement is only a valid hint if it still fits this
+            # solve's own bounds -- a preference change (a new protected
+            # block, a tighter deadline) can shrink [earliest_start,
+            # latest_start] out from under where the session used to sit, and
+            # handing CP-SAT a hint outside the variable's own domain is
+            # worse than no hint at all (rejected wholesale, not clamped).
+            hint_start = slot_of(hint.start)
+            if earliest_start <= hint_start <= latest_start:
+                model.AddHint(start, hint_start)
+                model.AddHint(presence, 1)
 
         day = model.NewIntVar(0, window_days - 1, f"day_{sess.id}")
         model.AddDivisionEquality(day, start, SLOTS_PER_DAY)
@@ -453,6 +498,40 @@ def build_and_solve(
         session_ctxs.append(
             SessionCtx(sess.id, sess.task_id, sess.course_id, presence, start, duration_slots, day, minute_of_day)
         )
+
+    # --- Same-task symmetry breaking: decompose.py splits one task's total
+    # duration into fully-interchangeable equal-length chunks (hw3__s1..s8,
+    # same title, same duration, same due_at) -- nothing distinguishes chunk
+    # 3 from chunk 6 except the label, so without ordering, CP-SAT's search
+    # treats every one of the 8! ways to assign them to the same 8 slots as a
+    # DIFFERENT candidate solution worth comparing, even though they all
+    # score identically. Two adjacent-pair constraints per task collapse that
+    # entire permutation group down to the one decompose.py already
+    # generated: keep chunks in their original index order whenever more
+    # than one of a task's chunks is present, and require them to fill
+    # front-to-back (a later chunk can't be present unless the one before it
+    # is too, so presence never "skips" an earlier chunk while placing a
+    # later one). Neither constraint says anything about WHERE a chunk
+    # lands, only which one is "first" among however many end up scheduled
+    # -- composes cleanly with spread_multi_session_tasks instead of fighting
+    # it. Grouped by iterating `sessions` (decompose.py's own s1..sN order,
+    # already the case since decompose_all appends one task's chunks
+    # contiguously) rather than re-sorting by id, so a locked/dropped middle
+    # chunk (already filtered out of `sessions` above) just leaves a shorter,
+    # still-correctly-ordered remainder instead of breaking the grouping.
+    # Review sessions pass through this loop too but are unaffected: each
+    # occurrence's task_id is unique to that occurrence, so every review
+    # "group" has exactly one member and the zip below is empty for it.
+    task_groups: dict[str, list[str]] = {}
+    for sess in sessions:
+        if sess.id in session_vars:
+            task_groups.setdefault(sess.task_id, []).append(sess.id)
+    for group_ids in task_groups.values():
+        for a_id, b_id in zip(group_ids, group_ids[1:]):
+            _, a_presence, a_start = session_vars[a_id]
+            _, b_presence, b_start = session_vars[b_id]
+            model.Add(a_start < b_start).OnlyEnforceIf([a_presence, b_presence])
+            model.AddImplication(b_presence, a_presence)
 
     # --- Preferences: everything the AI layer would eventually write into
     # `preferences` (CLAUDE.md) goes through the same compiler registry here.
@@ -509,6 +588,25 @@ def build_and_solve(
 
     solver = cp_model.CpSolver()
     solver.parameters.max_time_in_seconds = max_time_in_seconds
+    # Used to always burn the full time budget -- CP-SAT keeps searching for
+    # a BETTER solution right up to max_time_in_seconds even after it can
+    # already prove the current one is close enough, which on an easy week
+    # (few tasks, few active preferences) means paying the full 15s for a
+    # result that was actually settled in under one. relative_gap_limit=0.5%
+    # tells the solver to stop the moment (best_bound - objective) / |objective|
+    # drops under that -- i.e. the moment it can PROVE no solution is more
+    # than 0.5% better than what it already has, not just that it hasn't
+    # found one yet. README.md's own "Round 5" table shows real 15s runs
+    # landing a 0.18-0.25% gap at 2-8 workers on this test data, so 0.5% is a
+    # real stopping point on a genuinely easy solve, not a number that never
+    # fires; a hard week that can't get under 0.5% in time still runs the
+    # full budget exactly as before, gap and all -- this only ever makes an
+    # EASY solve faster, never trades away quality on a hard one. Also the
+    # philosophically honest choice for a product whose whole pitch is
+    # showing the user a real "% optimized" number (CLAUDE.md): stopping at
+    # a provable bound is a legitimate claim, not an early exit dressed up
+    # as one.
+    solver.parameters.relative_gap_limit = relative_gap_limit
     # Was hardcoded to 8 -- which happens to be exactly this dev machine's
     # core count, not a considered choice for wherever this actually runs.
     # CP-SAT's parallel search only gets real speedup from workers that map

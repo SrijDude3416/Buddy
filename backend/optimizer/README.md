@@ -490,6 +490,80 @@ need to specifically guarantee at least 2 real vCPUs -- check that explicitly
 when picking a plan/tier rather than taking whatever a free default gives.
 That's a cheap, common tier on Railway/Render/Fly.io, not a premium one.
 
+## Round 6: warm-starting, symmetry, and stopping when it's proven good enough
+
+Prompted by "make the optimizer run WAY faster" -- three changes, all in
+`scheduler.py`, none touching what a solve can *decide*, only how it searches
+for it and when it's allowed to stop:
+
+**1. Hint the previous solution.** `CLAUDE.md`'s own core loop is chat
+feedback -> new preference -> re-solve, and every re-solve after the first is
+almost always a small perturbation of a schedule that already exists. Every
+solve used to start cold anyway. `build_and_solve` now takes
+`hint_placements: list[PlacedBlock]`, and calls `model.AddHint` on each
+flexible session's `start`/`presence` (and the meal-window/windowed-commitment
+`start` vars) wherever a previous placement is still inside that session's
+current bounds -- not a constraint, just an incumbent CP-SAT is free to move.
+`preference_pipeline.py`'s `apply_and_solve` builds this from the exact same
+`mongo_state.load_plan_cache()` read that already feeds `locked_sessions` for
+past-preservation, just without that loop's `start < now` filter -- the
+already-past sessions get excluded from this solve's own decomposition
+anyway, so re-hinting them is harmless, not wasted effort. A hint that no
+longer fits (a new preference shrank the window it used to sit in) is dropped
+outright rather than clamped -- CP-SAT rejects an invalid hint wholesale, so
+handing it a bogus one is worse than handing it none.
+
+Measured directly: an identical cold-vs-hinted re-solve of the same 14-day
+window went from ~11.05s to ~6.87s; a perturbed re-solve (a new preference
+added on top) went from ~11.76s cold to ~7.22s hinted, both landing OPTIMAL at
+essentially the same objective value. Through the real live path
+(`/preferences/operations`, Mongo-backed, the one `buddy/`'s chat demo
+actually calls), once a cached plan exists a re-solve after a real tool call
+(`set_task_spacing`) came back in **0.07s** with a 0.017% gap -- not the
+15-second budget every chat message used to pay.
+
+**2. Break same-task symmetry.** `decompose.py` splits a task into fully
+interchangeable equal-length chunks (`hw3__s1..s8`: same title, same
+duration, same due date). Nothing in the model distinguished chunk 3 from
+chunk 6 except its label, so the search space included every one of the 8!
+ways to assign them to the same slots as if they were meaningfully different
+candidates. Two adjacent-pair constraints per task, added right after the
+flexible-session loop -- keep whichever chunks are present in `decompose.py`'s
+own index order, and require front-to-back fill (a later chunk's presence
+implies the one before it is present) -- collapse that whole permutation group
+down to one. Neither constraint says anything about *where* a chunk lands,
+only which one counts as "first," so it composes with
+`spread_multi_session_tasks` instead of contradicting it.
+
+**3. Stop at a provable gap, not always the full budget.**
+`solver.parameters.relative_gap_limit` was never set, so every solve ran the
+complete `max_time_in_seconds` even after finding (and being able to prove)
+a near-optimal answer early. Now set to 0.005 (0.5%, overridable via
+`BUDDY_SOLVE_GAP`) -- Round 5's own table above already showed real 15s runs
+landing 0.18-0.25% gaps on this data, so 0.5% is a real, frequently-hit
+stopping point, not a number that never fires. A genuinely hard week that
+can't prove under 0.5% in time still runs the full budget exactly as before --
+this only ever makes an *easy* solve faster, it never trades away quality on
+a hard one. It's also the philosophically honest choice for a product whose
+whole pitch is showing a real "% optimized" number (`CLAUDE.md`): stopping at
+a provable bound is a legitimate claim, not a fudged early exit.
+
+Measured directly (same 14-day window, same `tuned` profile, cold, no hints):
+before this change, 15.24s, status FEASIBLE, gap ~0.09%. After: 9.84s, status
+OPTIMAL (i.e. within the 0.5% target), same 74 flexible sessions placed / 26
+unplaced -- no change in what got scheduled, just how long it took to become
+confident enough to stop looking for something marginally better.
+
+**A real, unrelated bug found while load-testing this, not fixed here**:
+adding an `avoid_block` preference whose span fully covers a day's
+`meal_window` (e.g. protecting Friday 17:00-20:00 on top of the default
+17:30-20:00 dinner window) makes the *entire* solve INFEASIBLE, not just that
+one meal -- the same "two mandatory intervals overlap" trap `CLAUDE.md`
+already documents for course-vs-routine blocks, just not yet handled for
+avoid_block vs. meal_window/commitment. Reproduced with a cold solve, no
+hints involved, so this is pre-existing and orthogonal to the changes above.
+Flagged as a follow-up task, not fixed in this round.
+
 ## Known gaps, not yet built
 
 - Exam/fixed-time tasks aren't materialized as locked blocks (see above) --

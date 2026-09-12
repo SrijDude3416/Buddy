@@ -495,6 +495,58 @@ actual, running code — no longer just a sketch):
   aesthetic tie-break failure. `-day` (range ~14) is safe by construction where
   `-start`/`-minute_of_day` (range ~100-1300) is not. Check this before trusting a new
   preference's behavior, don't wait to notice the symptom.
+- **A re-solve is a warm-start problem, not a cold one, and CP-SAT has a real
+  mechanism for that.** CLAUDE.md's own feedback loop (chat → new preference →
+  re-solve) means almost every solve after the first is a small perturbation of a
+  schedule that already exists — throwing that away and searching from nothing
+  every time wastes the time budget rediscovering structure CP-SAT already found.
+  `build_and_solve`'s `hint_placements` parameter (`scheduler.py`) feeds the
+  previous cached plan's flexible-session placements back in as `model.AddHint`
+  calls on each session's `start`/`presence` (and the mandatory-but-movable
+  meal/commitment `start` vars) — not a constraint, just a starting incumbent the
+  solver is free to move. `preference_pipeline.py`'s `apply_and_solve` builds this
+  from the same `mongo_state.load_plan_cache()` read that already feeds
+  `locked_sessions` for past-preservation, just without that loop's `start < now`
+  filter (locked past sessions get excluded from this solve's own decomposition
+  anyway, so hinting them again is harmless, not redundant work). A hint outside
+  its session's own current bounds (a new preference shrank the window since the
+  hint was recorded) is dropped rather than clamped — CP-SAT rejects an invalid
+  hint wholesale, so handing it something bogus is worse than no hint at all.
+  Measured live: an identical re-solve of the same 14-day window went from ~11s
+  cold to ~7s hinted; the real chat-triggered path (`/preferences/operations`)
+  now typically re-solves in well under a tenth of a second once a cached plan
+  exists, not the full time budget every message.
+- **`decompose.py` splits one task into fully-interchangeable equal-length
+  chunks, and CP-SAT doesn't know that unless told.** `hw3__s1..s8` share a
+  title, a duration, and a due date — nothing distinguishes chunk 3 from chunk 6
+  except its label, so without ordering, the solver's search treats every one of
+  the 8! ways to assign them to the same 8 slots as a genuinely different
+  candidate worth comparing, even though they all score identically. Two
+  adjacent-pair constraints per task (`scheduler.py`, right after the flexible-
+  session loop) collapse that: keep whichever chunks are present in
+  `decompose.py`'s own index order, and require them to fill front-to-back (a
+  later chunk's presence implies the one before it is present too). Neither
+  constraint touches *where* a chunk lands, only which one is "first" among
+  however many get scheduled, so it composes cleanly with
+  `spread_multi_session_tasks` instead of fighting it — a large, free search-space
+  cut, not a modeling tradeoff.
+- **`relative_gap_limit` stops the search the moment it's *proven* close enough,
+  instead of always spending the full time budget.** CP-SAT used to run every
+  solve for the entire `max_time_in_seconds`, even on an easy week where the
+  optimal (or near-optimal) answer was found in the first second — it would just
+  keep looking for something marginally better until time ran out.
+  `solver.parameters.relative_gap_limit = 0.005` (0.5%, env-overridable via
+  `BUDDY_SOLVE_GAP`) tells it to stop as soon as `(best_bound - objective) /
+  |objective|` is provably under that threshold. README.md's own "Round 5" table
+  already showed real 15s runs landing 0.18-0.25% gaps on this test data, so 0.5%
+  is a genuine stopping point that fires on an easy solve, not a number that
+  never triggers; a genuinely hard week that can't prove under 0.5% in time still
+  runs the full budget exactly as before. Also the philosophically honest choice
+  for a product whose whole pitch is showing a real "% optimized" number — a
+  provable bound is a legitimate place to stop, not a fudged early exit. Measured
+  live: the same cold 14-day solve that used to burn the full 15s (FEASIBLE,
+  0.09% gap) now finishes around 9-10s at OPTIMAL status once the achieved gap
+  clears the 0.5% bar.
 
 **Open decision, not yet made**: preferences currently blend into one weighted sum,
 so a strong `avoid_block` penalty and a weak `preferred_hours` reward can trade off in

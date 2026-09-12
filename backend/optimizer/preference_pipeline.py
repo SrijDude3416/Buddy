@@ -219,6 +219,17 @@ def register_pipeline(app):
         # deterministically by weekday.
         now = datetime.now(api.WINDOW_START.tzinfo)
         locked_sessions: list[scheduler.PlacedBlock] = []
+        # Every flexible session from the previous cached plan -- past AND
+        # future -- doubles as a solution hint for this solve (scheduler.py's
+        # `hint_placements`): the past ones are redundant with locked_sessions
+        # below (their ids get excluded from this solve's own decomposition
+        # entirely, so the hint lookup for them is simply never consulted),
+        # but the still-future ones are exactly the "small perturbation of a
+        # schedule you already have" case CLAUDE.md's chat-feedback loop
+        # produces on every message -- warm-starting CP-SAT from where they
+        # already sat lets it spend the time budget improving on a
+        # near-optimal incumbent instead of rediscovering one from nothing.
+        hint_placements: list[scheduler.PlacedBlock] = []
         try:
             previous = mongo_state.load_plan_cache()
             for s in (previous or {}).get("plan", {}).get("sessions", []):
@@ -231,16 +242,17 @@ def register_pipeline(app):
                 # raise "can't compare offset-naive and offset-aware
                 # datetimes" the moment locked_sessions is ever non-empty.
                 start = datetime.fromisoformat(s["start"]).replace(tzinfo=api.WINDOW_START.tzinfo)
-                if start >= now:
-                    continue  # still in the future -- this solve is free to decide it
                 end = datetime.fromisoformat(s["end"]).replace(tzinfo=api.WINDOW_START.tzinfo)
-                locked_sessions.append(scheduler.PlacedBlock(
+                block = scheduler.PlacedBlock(
                     id=s["_id"], task_id=s.get("task_id"), course_id=s.get("course_id"),
                     title=s.get("action", ""), kind="flexible",
                     start=start, end=end,
-                ))
+                )
+                hint_placements.append(block)
+                if start < now:
+                    locked_sessions.append(block)
         except Exception as exc:
-            print(f"[preference_pipeline] Could not load previous plan for past-locking ({exc}); solving with nothing locked.")
+            print(f"[preference_pipeline] Could not load previous plan for past-locking/hinting ({exc}); solving with nothing locked or hinted.")
 
         if not _SOLVE_LOCK.acquire(timeout=25):
             raise HTTPException(503, "The optimizer is busy. Please retry.")
@@ -251,8 +263,10 @@ def register_pipeline(app):
                 preferences=[*api.ALWAYS_ON_DEFAULTS, *store.to_preferences()],
                 personal_blocks=api.ROUTINE,
                 locked_sessions=locked_sessions,
+                hint_placements=hint_placements,
                 now_slot=max(0, int((now - api.WINDOW_START).total_seconds() // (scheduler.SLOT_MINUTES * 60))),
                 max_time_in_seconds=float(os.environ.get("BUDDY_SOLVE_SECONDS", "15")),
+                relative_gap_limit=float(os.environ.get("BUDDY_SOLVE_GAP", "0.005")),
             )
             seconds = time.perf_counter()-started
         finally:
