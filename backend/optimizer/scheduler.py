@@ -10,11 +10,15 @@ Core mechanics, matching CLAUDE.md's "Scheduling engine (CP-SAT)" section:
     unplaced sessions in the result instead of an all-or-nothing infeasible
     solve -- CLAUDE.md's "worth surfacing, not hiding" applies to individual
     sessions, not the whole run.
-  - No real `preferences` yet (no onboarding has happened for this test
-    data), so the objective is a placeholder: schedule as much as possible,
-    tie-broken toward earlier placement. This is explicitly not the
-    preference-compiler-registry objective described in CLAUDE.md -- it's
-    a stand-in until that exists.
+  - The objective has three tiers, in strictly descending scale so a lower
+    tier can never outweigh a higher one: (1) PRESENCE_WEIGHT * sessions
+    scheduled -- always place as much as possible first; (2) preferences,
+    compiled via preferences.py's registry, each an honest CLAUDE.md-style
+    typed (type, value, weight) preference; (3) a tiny -start term, just to
+    keep solves deterministic when preferences leave genuine ties, not to
+    drive behavior on its own (that was tier 2's old job before real
+    preferences existed -- see git history for what that looked like and
+    why it produced a bad schedule).
 """
 from __future__ import annotations
 
@@ -25,13 +29,15 @@ from ortools.sat.python import cp_model
 
 from data_loader import ScheduleData, WEEKDAY_ABBR
 from decompose import Session, decompose_all, SLOT_MINUTES
+from preferences import Preference, SessionCtx, compile_all
 
 DAY_START = time(8, 0)   # earliest an hour is ever "available" for anything
 DAY_END = time(23, 0)    # latest
 
 SLOTS_PER_DAY = 24 * 60 // SLOT_MINUTES  # 96 at 15-min resolution
 
-PRESENCE_WEIGHT = 100_000  # dominates the tie-break term; see module docstring
+PRESENCE_WEIGHT = 10_000_000  # dominates every preference term; see module docstring
+PREF_SCALE = 100  # margin of safety so tier 2 reliably dominates tier 3's tie-break
 
 
 def _time_to_slot_of_day(t: time) -> int:
@@ -62,6 +68,7 @@ def build_and_solve(
     data: ScheduleData,
     window_start: datetime,
     window_days: int,
+    preferences: list[Preference] = (),
     now_slot: int = 0,
     max_time_in_seconds: float = 10.0,
 ) -> SolveResult:
@@ -119,6 +126,7 @@ def build_and_solve(
     # failing.
     sessions = decompose_all(data.tasks)
     session_vars: dict[str, tuple[cp_model.IntervalVar, cp_model.IntVar, Session]] = {}
+    session_ctxs: list[SessionCtx] = []
     out_of_window: list[Session] = []
     infeasible_deadline: list[Session] = []
 
@@ -149,13 +157,44 @@ def build_and_solve(
         session_vars[sess.id] = (interval, presence, start)
         model.Add(end == start + duration_slots)
 
+        day = model.NewIntVar(0, window_days - 1, f"day_{sess.id}")
+        model.AddDivisionEquality(day, start, SLOTS_PER_DAY)
+        minute_of_day = model.NewIntVar(0, SLOTS_PER_DAY - 1, f"mod_{sess.id}")
+        model.AddModuloEquality(minute_of_day, start, SLOTS_PER_DAY)
+        session_ctxs.append(SessionCtx(sess.id, sess.task_id, presence, start, duration_slots, day, minute_of_day))
+
     model.AddNoOverlap(all_intervals)
 
-    # --- Placeholder objective (see module docstring): maximize sessions
-    # scheduled, tie-broken toward earlier placement.
+    # --- Preferences: everything the AI layer would eventually write into
+    # `preferences` (CLAUDE.md) goes through the same compiler registry here.
+    pref_ctx = {
+        "slot_minutes": SLOT_MINUTES,
+        "window_days": window_days,
+        "total_slots": total_slots,
+        "extra_no_overlap_groups": [],
+    }
+    preference_terms = compile_all(model, list(preferences), session_ctxs, pref_ctx)
+    for group in pref_ctx["extra_no_overlap_groups"]:
+        model.AddNoOverlap(group)
+
+    # --- Three-tier objective; see module docstring for why the tiers are
+    # scaled the way they are. Tier 3 used to be `-start` in 15-minute slots,
+    # which is NOT tiny relative to tier 2 -- it directly fights an evening
+    # preference (a 5pm start scores far worse than an 8am one on this term
+    # alone) and nearly cancels a daily-load penalty. Tie-breaking on the
+    # *day* instead of the exact slot shrinks its total possible swing by
+    # ~90x (window_days per session instead of total_slots) and removes the
+    # perverse fight with hour-of-day preferences entirely -- "prefer an
+    # earlier day, all else equal" is a much more defensible tie-break than
+    # "prefer the earliest minute of the day" was.
     presence_terms = [PRESENCE_WEIGHT * presence for _, (interval, presence, start) in session_vars.items()]
-    early_terms = [-start for _, (interval, presence, start) in session_vars.items()]
-    model.Maximize(sum(presence_terms) + sum(early_terms))
+    weighted_pref_terms = [PREF_SCALE * w * expr for w, expr in preference_terms]
+    tiebreak_terms = []
+    for ctx in session_ctxs:
+        active_day = model.NewIntVar(0, window_days - 1, f"tiebreak_day_{ctx.session_id}")
+        model.AddMultiplicationEquality(active_day, [ctx.day, ctx.presence])
+        tiebreak_terms.append(-active_day)
+    model.Maximize(sum(presence_terms) + sum(weighted_pref_terms) + sum(tiebreak_terms))
 
     solver = cp_model.CpSolver()
     solver.parameters.max_time_in_seconds = max_time_in_seconds

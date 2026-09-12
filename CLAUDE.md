@@ -100,9 +100,13 @@ implementation (none of it is wired to a real backend yet):
   in-memory data; every place a real API call belongs is marked with a
   `// In production: ...` comment.
 - **`SCHEMA.md`** — MongoDB schema, v2, feature-aligned with the MVP.
-- **`scheduler_core.py`** — CP-SAT sketch: the preference-compiler-registry pattern,
-  a `reify_window` helper, and a working `build_and_solve` assembly function. Not
-  production code — a pattern to build from, with unit-testable seams already marked.
+- **`backend/optimizer/`** — a real, running CP-SAT prototype against
+  `test-data/schedule_test_data.json`: the preference-compiler-registry pattern
+  (`preferences.py`, with a correctly bidirectional `reify_window`), placement
+  (`scheduler.py`), and an eval harness (`eval.py`) that turns a solve into concrete
+  numbers instead of an eyeballed calendar. See `backend/optimizer/README.md` for what
+  a preference-tuning pass actually found (a duration-rounding bug, an objective-scaling
+  bug, and a real modeling gap around fixed-time exams — still open, see below).
 
 ## Frontend
 
@@ -213,7 +217,8 @@ Two-stage pipeline, deliberately kept separate:
 2. **Placement** (CP-SAT). Given already-sized sessions, immovable fixed blocks, and a
    set of preferences, decide start times within the current week's window.
 
-Core mechanics (see `scheduler_core.py` for the actual code):
+Core mechanics (see `backend/optimizer/scheduler.py` and `preferences.py` for the
+actual, running code — no longer just a sketch):
 
 - Every session — fixed or flexible — is an `IntervalVar` in one shared list, and
   `AddNoOverlap` over that list is the *only* mechanism needed for "class times are
@@ -254,6 +259,17 @@ sessions' `duration_min` rather than ground truth. Once `actual_time_logged_min`
 feedback exists, decide whether refinement writes back into individual
 `sessions.duration_min` values or only adjusts the task-level rollup — that decision
 changes who's allowed to touch a not-yet-`locked` session document.
+
+**Open gap, found while preference-tuning against real data, not yet fixed**: an exam
+(`splittable: false`, a `due_at`) is still just a flexible task to the optimizer —
+`splittable: false` only affects how many sessions `decompose.py` produces, it says
+nothing about whether the *time itself* is a decision. Result: a real prototype run
+placed "Midterm 1" at 8pm four days before the actual exam, which is meaningless — an
+exam happens at one specific, non-negotiable time, the same way a lecture does. This
+needs a schema answer, not a new preference: most likely, exam-type tasks should
+materialize as locked blocks the same way `courses.meeting_times` do (see `SCHEMA.md`),
+rather than ever entering the optimizer as a `tasks` document at all. See
+`backend/optimizer/README.md` for the specific run this showed up in.
 
 ## Hackathon pitch (for whoever demos this)
 

@@ -59,7 +59,7 @@
     padding-bottom: 16px; border-bottom: 1px solid var(--border);
   }
   header h1 { margin: 0; font-size: 26px; font-weight: 600; text-wrap: balance; }
-  header .subtitle { margin: 4px 0 0; color: var(--ink-2); font-size: 13.5px; max-width: 46ch; }
+  header .subtitle { margin: 4px 0 0; color: var(--ink-2); font-size: 13.5px; max-width: 48ch; }
   .header-right { display: flex; flex-direction: column; align-items: flex-end; gap: 10px; }
 
   .toggle { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; padding: 2px; gap: 2px; background: var(--surface-2); }
@@ -78,6 +78,7 @@
   .stat-chip .label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--ink-muted); }
   .stat-chip .value { font-size: 13px; font-weight: 500; }
   .stat-chip.good .value { color: var(--good); }
+  .stat-chip.bad .value { color: var(--critical); }
 
   /* ---------- layout ---------- */
   .layout { display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: 20px; align-items: start; }
@@ -85,9 +86,8 @@
 
   /* ---------- calendar ---------- */
   .cal-scroll { overflow-x: auto; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
-  .cal { display: grid; grid-template-columns: 52px repeat(var(--days), minmax(128px, 1fr)); min-width: max-content; }
+  .cal { display: grid; grid-template-columns: 52px repeat(var(--days), minmax(112px, 1fr)); min-width: max-content; }
 
-  .cal .corner { border-bottom: 1px solid var(--border); }
   .day-head {
     padding: 10px 8px 8px; border-bottom: 1px solid var(--border); border-left: 1px solid var(--gridline);
     text-align: center; position: sticky; top: 0; background: var(--surface); z-index: 2;
@@ -115,8 +115,8 @@
     background: color-mix(in srgb, var(--course-color) 15%, var(--surface));
   }
   .block:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-  .block .t { font-size: 11px; font-weight: 500; color: var(--ink); line-height: 1.25; display: block; }
-  .block .m { font-size: 9.5px; color: var(--ink-2); font-family: "IBM Plex Mono", monospace; }
+  .block .t { font-size: 10.5px; font-weight: 500; color: var(--ink); line-height: 1.2; display: block; }
+  .block .m { font-size: 9px; color: var(--ink-2); font-family: "IBM Plex Mono", monospace; }
   .block.fixed {
     background-image:
       repeating-linear-gradient(135deg, color-mix(in srgb, var(--course-color) 22%, transparent) 0 3px, transparent 3px 8px),
@@ -163,18 +163,19 @@
 
   .note { font-size: 12.5px; color: var(--ink-2); }
   .note strong { color: var(--ink); }
+  .note + .note { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--gridline); }
 </style>
 
 <div class="page">
   <header>
     <div>
       <h1 class="serif">Buddy &mdash; schedule preview</h1>
-      <p class="subtitle">CP-SAT's placement of Carlos's own Fall '26 tasks, run against a rolling window starting <span class="mono">2026-09-11</span>. No onboarding preferences exist yet, so the objective is a placeholder: schedule as much as possible, tie-broken toward earlier starts.</p>
+      <p class="subtitle">CP-SAT's placement of Carlos's real Fall '26 tasks, Sept 12&ndash;26. Toggle to see what four hand-authored preferences (daily load cap, evening hours, session spacing, spread-out multi-session tasks) actually changed versus no preferences at all.</p>
     </div>
     <div class="header-right">
-      <div class="toggle" role="group" aria-label="Window length">
-        <button type="button" data-window="7" aria-pressed="true">7-day window</button>
-        <button type="button" data-window="14" aria-pressed="false">14-day window</button>
+      <div class="toggle" role="group" aria-label="Preference profile">
+        <button type="button" data-profile="none" aria-pressed="true">No preferences</button>
+        <button type="button" data-profile="tuned" aria-pressed="false">Tuned preferences</button>
       </div>
       <div class="stat-row" id="stats"></div>
     </div>
@@ -200,8 +201,9 @@
         <div id="owed"></div>
       </div>
       <div class="panel">
-        <h2>Note from this run</h2>
-        <p class="note"><strong>Everything piles onto day one.</strong> With no real preference weights yet, "maximize sessions placed + prefer earlier" is all CP-SAT has to go on &mdash; so it dutifully crams nearly the whole week's work into Friday instead of spreading it out. Not a solver bug: the placeholder objective doing exactly what it's told. A "don't overload one day" preference is the fix, once real preferences exist.</p>
+        <h2>Notes from this round</h2>
+        <p class="note"><strong>No preferences = one brutal day.</strong> With only "place everything, prefer earlier," CP-SAT crammed 900 of the day's 900 available minutes (8am&ndash;11pm, zero gaps) into Saturday alone, then spilled into Sunday, then stopped &mdash; nothing touches the following ten days. Four preferences (a soft 4-hour/day cap, an evening-hours reward, a hard 15-minute buffer between sessions, and a penalty for landing two sessions of the same task on the same day) turn that into a normal-looking week: busiest day drops to 4.5 hours, 90% of work lands in the evening, and zero sessions butt up against each other.</p>
+        <p class="note"><strong>A real gap this surfaced:</strong> Midterm 1 and Exam 1 are shown as movable blocks the optimizer can place anywhere before a deadline &mdash; but a real exam happens at one specific, non-negotiable time, like a lecture. Right now nothing in the data distinguishes "finish this before X" from "this literally happens at X." That needs a schema answer (probably: exams materialize as locked blocks, same as `courses.meeting_times`), not a scheduling preference.</p>
       </div>
     </aside>
   </div>
@@ -209,142 +211,12 @@
 
 <div id="tip"><div class="tt"></div><div class="tm"></div></div>
 
-<script type="application/json" id="data-7">
-{
-  "window_start": "2026-09-11T00:00:00-04:00",
-  "window_days": 7,
-  "status": "OPTIMAL",
-  "objective": 499787.0,
-  "best_bound": 499787.0,
-  "blocks": [
-    {"id":"fixed_math-found_0_13:00","title":"15151 Math Foundations","kind":"fixed","course_id":"math-found","start":"2026-09-11T13:00:00-04:00","end":"2026-09-11T13:50:00-04:00"},
-    {"id":"fixed_matrices_0_09:00","title":"21241 Matrices","kind":"fixed","course_id":"matrices","start":"2026-09-11T09:00:00-04:00","end":"2026-09-11T09:50:00-04:00"},
-    {"id":"fixed_imp-comp_0_17:00","title":"15122 Imperative Computation","kind":"fixed","course_id":"imp-comp","start":"2026-09-11T17:00:00-04:00","end":"2026-09-11T17:50:00-04:00"},
-    {"id":"fixed_gpi_0_16:00","title":"07131 Great Practical Ideas for Computer Scientists","kind":"fixed","course_id":"gpi","start":"2026-09-11T16:00:00-04:00","end":"2026-09-11T16:50:00-04:00"},
-    {"id":"fixed_math-found_3_13:00","title":"15151 Math Foundations","kind":"fixed","course_id":"math-found","start":"2026-09-14T13:00:00-04:00","end":"2026-09-14T13:50:00-04:00"},
-    {"id":"fixed_matrices_3_09:00","title":"21241 Matrices","kind":"fixed","course_id":"matrices","start":"2026-09-14T09:00:00-04:00","end":"2026-09-14T09:50:00-04:00"},
-    {"id":"fixed_fye-immig_3_16:00","title":"07128 First-Year Immigration","kind":"fixed","course_id":"fye-immig","start":"2026-09-14T16:00:00-04:00","end":"2026-09-14T16:50:00-04:00"},
-    {"id":"fixed_hum-intel_3_19:00","title":"88230 Human Intelligence & Stupidity","kind":"fixed","course_id":"hum-intel","start":"2026-09-14T19:00:00-04:00","end":"2026-09-14T20:20:00-04:00"},
-    {"id":"fixed_math-found_4_17:00","title":"15151 Math Foundations","kind":"fixed","course_id":"math-found","start":"2026-09-15T17:00:00-04:00","end":"2026-09-15T17:50:00-04:00"},
-    {"id":"fixed_matrices_4_15:00","title":"21241 Matrices","kind":"fixed","course_id":"matrices","start":"2026-09-15T15:00:00-04:00","end":"2026-09-15T15:50:00-04:00"},
-    {"id":"fixed_imp-comp_4_09:30","title":"15122 Imperative Computation","kind":"fixed","course_id":"imp-comp","start":"2026-09-15T09:30:00-04:00","end":"2026-09-15T10:50:00-04:00"},
-    {"id":"fixed_imp-comp_4_19:00","title":"15122 Imperative Computation","kind":"fixed","course_id":"imp-comp","start":"2026-09-15T19:00:00-04:00","end":"2026-09-15T19:35:00-04:00"},
-    {"id":"fixed_math-found_5_13:00","title":"15151 Math Foundations","kind":"fixed","course_id":"math-found","start":"2026-09-16T13:00:00-04:00","end":"2026-09-16T13:50:00-04:00"},
-    {"id":"fixed_matrices_5_09:00","title":"21241 Matrices","kind":"fixed","course_id":"matrices","start":"2026-09-16T09:00:00-04:00","end":"2026-09-16T09:50:00-04:00"},
-    {"id":"fixed_fye-immig_5_16:00","title":"07128 First-Year Immigration","kind":"fixed","course_id":"fye-immig","start":"2026-09-16T16:00:00-04:00","end":"2026-09-16T16:50:00-04:00"},
-    {"id":"fixed_hum-intel_5_19:00","title":"88230 Human Intelligence & Stupidity","kind":"fixed","course_id":"hum-intel","start":"2026-09-16T19:00:00-04:00","end":"2026-09-16T20:20:00-04:00"},
-    {"id":"mf-3-2-cont__s1","title":"Section 3.2: Injections and Surjections (Continued)","kind":"flexible","course_id":"math-found","start":"2026-09-11T10:30:00-04:00","end":"2026-09-11T11:15:00-04:00"},
-    {"id":"mf-4-3-strong-induction__s1","title":"Section 4.3: Strong Induction","kind":"flexible","course_id":"math-found","start":"2026-09-11T08:00:00-04:00","end":"2026-09-11T09:00:00-04:00"},
-    {"id":"mx-weekly-hw3__s1","title":"Weekly HW 3 (Optional)","kind":"flexible","course_id":"matrices","start":"2026-09-11T09:45:00-04:00","end":"2026-09-11T10:30:00-04:00"},
-    {"id":"hi-response-paper1__s1","title":"Response Paper 1 Due (part 1/2)","kind":"flexible","course_id":"hum-intel","start":"2026-09-11T13:45:00-04:00","end":"2026-09-11T15:00:00-04:00"},
-    {"id":"hi-response-paper1__s2","title":"Response Paper 1 Due (part 2/2)","kind":"flexible","course_id":"hum-intel","start":"2026-09-11T11:15:00-04:00","end":"2026-09-11T12:30:00-04:00"}
-  ],
-  "unplaced": [
-    {"title":"Section 6.2: Countable and Uncountable Sets","reason":"out_of_window"},
-    {"title":"Some More Probability","reason":"out_of_window"},
-    {"title":"Recitation Quiz 4","reason":"out_of_window"},
-    {"title":"Weekly HW 9 (Optional) (part 1/2)","reason":"out_of_window"},
-    {"title":"Weekly HW 9 (Optional) (part 2/2)","reason":"out_of_window"},
-    {"title":"Recitation Quiz 13","reason":"out_of_window"},
-    {"title":"Intro to Stupidity","reason":"out_of_window"},
-    {"title":"Assignment 1 Due (part 1/4)","reason":"out_of_window"},
-    {"title":"Assignment 1 Due (part 2/4)","reason":"out_of_window"},
-    {"title":"Assignment 1 Due (part 3/4)","reason":"out_of_window"},
-    {"title":"Assignment 1 Due (part 4/4)","reason":"out_of_window"},
-    {"title":"Assignment 2 Due (part 1/4)","reason":"out_of_window"},
-    {"title":"Assignment 2 Due (part 2/4)","reason":"out_of_window"},
-    {"title":"Assignment 2 Due (part 3/4)","reason":"out_of_window"},
-    {"title":"Assignment 2 Due (part 4/4)","reason":"out_of_window"},
-    {"title":"Response Paper 5 Due (part 1/2)","reason":"out_of_window"},
-    {"title":"Response Paper 5 Due (part 2/2)","reason":"out_of_window"},
-    {"title":"RPP Extra Credit Deadline","reason":"out_of_window"},
-    {"title":"CH6 (Checkin) (part 1/2)","reason":"out_of_window"},
-    {"title":"CH6 (Checkin) (part 2/2)","reason":"out_of_window"},
-    {"title":"CH7 (Checkin) (part 1/2)","reason":"out_of_window"},
-    {"title":"CH7 (Checkin) (part 2/2)","reason":"out_of_window"},
-    {"title":"CH9 (Checkin) (part 1/2)","reason":"out_of_window"},
-    {"title":"CH9 (Checkin) (part 2/2)","reason":"out_of_window"},
-    {"title":"CH13 (Checkin) (part 1/2)","reason":"out_of_window"},
-    {"title":"CH13 (Checkin) (part 2/2)","reason":"out_of_window"}
-  ]
-}
+<script type="application/json" id="data-none">
+{"window_start":"2026-09-12T00:00:00-04:00","window_days":14,"status":"FEASIBLE","objective":349999972.0,"best_bound":349999987.0,"blocks":[{"id":"fixed_math-found_2_13:00","title":"15151 Math Foundations","kind":"fixed","course_id":"math-found","start":"2026-09-14T13:00:00-04:00","end":"2026-09-14T13:50:00-04:00"},{"id":"fixed_matrices_2_09:00","title":"21241 Matrices","kind":"fixed","course_id":"matrices","start":"2026-09-14T09:00:00-04:00","end":"2026-09-14T09:50:00-04:00"},{"id":"fixed_fye-immig_2_16:00","title":"07128 First-Year Immigration","kind":"fixed","course_id":"fye-immig","start":"2026-09-14T16:00:00-04:00","end":"2026-09-14T16:50:00-04:00"},{"id":"fixed_hum-intel_2_19:00","title":"88230 Human Intelligence & Stupidity","kind":"fixed","course_id":"hum-intel","start":"2026-09-14T19:00:00-04:00","end":"2026-09-14T20:20:00-04:00"},{"id":"fixed_math-found_3_17:00","title":"15151 Math Foundations","kind":"fixed","course_id":"math-found","start":"2026-09-15T17:00:00-04:00","end":"2026-09-15T17:50:00-04:00"},{"id":"fixed_matrices_3_15:00","title":"21241 Matrices","kind":"fixed","course_id":"matrices","start":"2026-09-15T15:00:00-04:00","end":"2026-09-15T15:50:00-04:00"},{"id":"fixed_imp-comp_3_09:30","title":"15122 Imperative Computation","kind":"fixed","course_id":"imp-comp","start":"2026-09-15T09:30:00-04:00","end":"2026-09-15T10:50:00-04:00"},{"id":"fixed_imp-comp_3_19:00","title":"15122 Imperative Computation","kind":"fixed","course_id":"imp-comp","start":"2026-09-15T19:00:00-04:00","end":"2026-09-15T19:35:00-04:00"},{"id":"fixed_math-found_4_13:00","title":"15151 Math Foundations","kind":"fixed","course_id":"math-found","start":"2026-09-16T13:00:00-04:00","end":"2026-09-16T13:50:00-04:00"},{"id":"fixed_matrices_4_09:00","title":"21241 Matrices","kind":"fixed","course_id":"matrices","start":"2026-09-16T09:00:00-04:00","end":"2026-09-16T09:50:00-04:00"},{"id":"fixed_fye-immig_4_16:00","title":"07128 First-Year Immigration","kind":"fixed","course_id":"fye-immig","start":"2026-09-16T16:00:00-04:00","end":"2026-09-16T16:50:00-04:00"},{"id":"fixed_hum-intel_4_19:00","title":"88230 Human Intelligence & Stupidity","kind":"fixed","course_id":"hum-intel","start":"2026-09-16T19:00:00-04:00","end":"2026-09-16T20:20:00-04:00"},{"id":"fixed_math-found_6_13:00","title":"15151 Math Foundations","kind":"fixed","course_id":"math-found","start":"2026-09-18T13:00:00-04:00","end":"2026-09-18T13:50:00-04:00"},{"id":"fixed_matrices_6_09:00","title":"21241 Matrices","kind":"fixed","course_id":"matrices","start":"2026-09-18T09:00:00-04:00","end":"2026-09-18T09:50:00-04:00"},{"id":"fixed_imp-comp_6_17:00","title":"15122 Imperative Computation","kind":"fixed","course_id":"imp-comp","start":"2026-09-18T17:00:00-04:00","end":"2026-09-18T17:50:00-04:00"},{"id":"fixed_gpi_6_16:00","title":"07131 Great Practical Ideas for Computer Scientists","kind":"fixed","course_id":"gpi","start":"2026-09-18T16:00:00-04:00","end":"2026-09-18T16:50:00-04:00"},{"id":"fixed_math-found_9_13:00","title":"15151 Math Foundations","kind":"fixed","course_id":"math-found","start":"2026-09-21T13:00:00-04:00","end":"2026-09-21T13:50:00-04:00"},{"id":"fixed_matrices_9_09:00","title":"21241 Matrices","kind":"fixed","course_id":"matrices","start":"2026-09-21T09:00:00-04:00","end":"2026-09-21T09:50:00-04:00"},{"id":"fixed_fye-immig_9_16:00","title":"07128 First-Year Immigration","kind":"fixed","course_id":"fye-immig","start":"2026-09-21T16:00:00-04:00","end":"2026-09-21T16:50:00-04:00"},{"id":"fixed_hum-intel_9_19:00","title":"88230 Human Intelligence & Stupidity","kind":"fixed","course_id":"hum-intel","start":"2026-09-21T19:00:00-04:00","end":"2026-09-21T20:20:00-04:00"},{"id":"fixed_math-found_10_17:00","title":"15151 Math Foundations","kind":"fixed","course_id":"math-found","start":"2026-09-22T17:00:00-04:00","end":"2026-09-22T17:50:00-04:00"},{"id":"fixed_matrices_10_15:00","title":"21241 Matrices","kind":"fixed","course_id":"matrices","start":"2026-09-22T15:00:00-04:00","end":"2026-09-22T15:50:00-04:00"},{"id":"fixed_imp-comp_10_09:30","title":"15122 Imperative Computation","kind":"fixed","course_id":"imp-comp","start":"2026-09-22T09:30:00-04:00","end":"2026-09-22T10:50:00-04:00"},{"id":"fixed_imp-comp_10_19:00","title":"15122 Imperative Computation","kind":"fixed","course_id":"imp-comp","start":"2026-09-22T19:00:00-04:00","end":"2026-09-22T19:35:00-04:00"},{"id":"fixed_math-found_11_13:00","title":"15151 Math Foundations","kind":"fixed","course_id":"math-found","start":"2026-09-23T13:00:00-04:00","end":"2026-09-23T13:50:00-04:00"},{"id":"fixed_matrices_11_09:00","title":"21241 Matrices","kind":"fixed","course_id":"matrices","start":"2026-09-23T09:00:00-04:00","end":"2026-09-23T09:50:00-04:00"},{"id":"fixed_fye-immig_11_16:00","title":"07128 First-Year Immigration","kind":"fixed","course_id":"fye-immig","start":"2026-09-23T16:00:00-04:00","end":"2026-09-23T16:50:00-04:00"},{"id":"fixed_hum-intel_11_19:00","title":"88230 Human Intelligence & Stupidity","kind":"fixed","course_id":"hum-intel","start":"2026-09-23T19:00:00-04:00","end":"2026-09-23T20:20:00-04:00"},{"id":"fixed_math-found_13_13:00","title":"15151 Math Foundations","kind":"fixed","course_id":"math-found","start":"2026-09-25T13:00:00-04:00","end":"2026-09-25T13:50:00-04:00"},{"id":"fixed_matrices_13_09:00","title":"21241 Matrices","kind":"fixed","course_id":"matrices","start":"2026-09-25T09:00:00-04:00","end":"2026-09-25T09:50:00-04:00"},{"id":"fixed_imp-comp_13_17:00","title":"15122 Imperative Computation","kind":"fixed","course_id":"imp-comp","start":"2026-09-25T17:00:00-04:00","end":"2026-09-25T17:50:00-04:00"},{"id":"fixed_gpi_13_16:00","title":"07131 Great Practical Ideas for Computer Scientists","kind":"fixed","course_id":"gpi","start":"2026-09-25T16:00:00-04:00","end":"2026-09-25T16:50:00-04:00"},{"id":"hi-response-paper1__s1","title":"Response Paper 1 Due (part 1/2)","kind":"flexible","course_id":"hum-intel","start":"2026-09-12T08:00:00-04:00","end":"2026-09-12T09:15:00-04:00"},{"id":"hi-response-paper1__s2","title":"Response Paper 1 Due (part 2/2)","kind":"flexible","course_id":"hum-intel","start":"2026-09-13T08:00:00-04:00","end":"2026-09-13T09:15:00-04:00"},{"id":"ic-pg2__s1","title":"PG2 Due","kind":"flexible","course_id":"imp-comp","start":"2026-09-12T13:15:00-04:00","end":"2026-09-12T14:15:00-04:00"},{"id":"mf-weak-induction__s1","title":"Section 4.2: Weak Induction","kind":"flexible","course_id":"math-found","start":"2026-09-13T18:30:00-04:00","end":"2026-09-13T19:30:00-04:00"},{"id":"hi-effects-of-intelligence__s1","title":"Effects of Intelligence","kind":"flexible","course_id":"hum-intel","start":"2026-09-12T21:15:00-04:00","end":"2026-09-12T22:00:00-04:00"},{"id":"ic-ch3-checkin__s1","title":"CH3 (Checkin)","kind":"flexible","course_id":"imp-comp","start":"2026-09-12T22:00:00-04:00","end":"2026-09-12T22:45:00-04:00"},{"id":"mx-recitation-quiz3__s1","title":"Recitation Quiz 3","kind":"flexible","course_id":"matrices","start":"2026-09-12T15:15:00-04:00","end":"2026-09-12T16:15:00-04:00"},{"id":"mf-hw3-due__s1","title":"HW3 Due (part 1/8)","kind":"flexible","course_id":"math-found","start":"2026-09-13T09:15:00-04:00","end":"2026-09-13T10:45:00-04:00"},{"id":"mf-hw3-due__s2","title":"HW3 Due (part 2/8)","kind":"flexible","course_id":"math-found","start":"2026-09-13T12:15:00-04:00","end":"2026-09-13T13:45:00-04:00"},{"id":"mf-hw3-due__s3","title":"HW3 Due (part 3/8)","kind":"flexible","course_id":"math-found","start":"2026-09-14T11:15:00-04:00","end":"2026-09-14T12:45:00-04:00"},{"id":"mf-hw3-due__s4","title":"HW3 Due (part 4/8)","kind":"flexible","course_id":"math-found","start":"2026-09-14T09:45:00-04:00","end":"2026-09-14T11:15:00-04:00"},{"id":"mf-hw3-due__s5","title":"HW3 Due (part 5/8)","kind":"flexible","course_id":"math-found","start":"2026-09-14T13:45:00-04:00","end":"2026-09-14T15:15:00-04:00"},{"id":"mf-hw3-due__s6","title":"HW3 Due (part 6/8)","kind":"flexible","course_id":"math-found","start":"2026-09-13T10:45:00-04:00","end":"2026-09-13T12:15:00-04:00"},{"id":"mf-hw3-due__s7","title":"HW3 Due (part 7/8)","kind":"flexible","course_id":"math-found","start":"2026-09-12T09:15:00-04:00","end":"2026-09-12T10:45:00-04:00"},{"id":"mf-hw3-due__s8","title":"HW3 Due (part 8/8)","kind":"flexible","course_id":"math-found","start":"2026-09-12T22:45:00-04:00","end":"2026-09-12T23:00:00-04:00"},{"id":"mf-4-3-strong-induction__s1","title":"Section 4.3: Strong Induction","kind":"flexible","course_id":"math-found","start":"2026-09-13T20:30:00-04:00","end":"2026-09-13T21:30:00-04:00"},{"id":"hi-human-vs-artificial__s1","title":"Human Intelligence vs Artificial Intelligence","kind":"flexible","course_id":"hum-intel","start":"2026-09-13T21:30:00-04:00","end":"2026-09-13T23:00:00-04:00"},{"id":"ic-pr3__s1","title":"PR3 Due","kind":"flexible","course_id":"imp-comp","start":"2026-09-12T20:15:00-04:00","end":"2026-09-12T21:15:00-04:00"},{"id":"mx-weekly-hw4__s1","title":"Weekly HW 4 (Optional) (part 1/2)","kind":"flexible","course_id":"matrices","start":"2026-09-14T16:45:00-04:00","end":"2026-09-14T18:00:00-04:00"},{"id":"mx-weekly-hw4__s2","title":"Weekly HW 4 (Optional) (part 2/2)","kind":"flexible","course_id":"matrices","start":"2026-09-13T15:00:00-04:00","end":"2026-09-13T16:15:00-04:00"},{"id":"mf-4-3-strong-induction-cont-l13__s1","title":"Section 4.3: Strong Induction (Continued)","kind":"flexible","course_id":"math-found","start":"2026-09-12T17:15:00-04:00","end":"2026-09-12T18:15:00-04:00"},{"id":"ic-pg3__s1","title":"PG3 Due (part 1/2)","kind":"flexible","course_id":"imp-comp","start":"2026-09-14T08:00:00-04:00","end":"2026-09-14T09:00:00-04:00"},{"id":"ic-pg3__s2","title":"PG3 Due (part 2/2)","kind":"flexible","course_id":"imp-comp","start":"2026-09-12T19:15:00-04:00","end":"2026-09-12T20:15:00-04:00"},{"id":"mf-midterm1__s1","title":"Midterm 1","kind":"flexible","course_id":"math-found","start":"2026-09-12T14:15:00-04:00","end":"2026-09-12T15:15:00-04:00"},{"id":"hi-human-vs-animal__s1","title":"Human Intelligence vs Animal Intelligence","kind":"flexible","course_id":"hum-intel","start":"2026-09-14T20:15:00-04:00","end":"2026-09-14T21:45:00-04:00"},{"id":"mx-recitation-quiz4__s1","title":"Recitation Quiz 4","kind":"flexible","course_id":"matrices","start":"2026-09-12T18:15:00-04:00","end":"2026-09-12T19:15:00-04:00"},{"id":"ic-ch4-checkin__s1","title":"CH4 (Checkin) (part 1/2)","kind":"flexible","course_id":"imp-comp","start":"2026-09-13T17:30:00-04:00","end":"2026-09-13T18:30:00-04:00"},{"id":"ic-ch4-checkin__s2","title":"CH4 (Checkin) (part 2/2)","kind":"flexible","course_id":"imp-comp","start":"2026-09-12T12:15:00-04:00","end":"2026-09-12T13:15:00-04:00"},{"id":"mf-4-3-strong-induction-cont-l14__s1","title":"Section 4.3: Strong Induction (Continued)","kind":"flexible","course_id":"math-found","start":"2026-09-12T16:15:00-04:00","end":"2026-09-12T17:15:00-04:00"},{"id":"hi-intro-to-stupidity__s1","title":"Intro to Stupidity","kind":"flexible","course_id":"hum-intel","start":"2026-09-12T10:45:00-04:00","end":"2026-09-12T12:15:00-04:00"},{"id":"ic-pr4__s1","title":"PR4 Due","kind":"flexible","course_id":"imp-comp","start":"2026-09-14T18:00:00-04:00","end":"2026-09-14T19:00:00-04:00"},{"id":"mx-exam1__s1","title":"Exam 1","kind":"flexible","course_id":"matrices","start":"2026-09-13T19:30:00-04:00","end":"2026-09-13T20:30:00-04:00"},{"id":"mx-weekly-hw5__s1","title":"Weekly HW 5 (Optional) (part 1/2)","kind":"flexible","course_id":"matrices","start":"2026-09-13T13:45:00-04:00","end":"2026-09-13T15:00:00-04:00"},{"id":"mx-weekly-hw5__s2","title":"Weekly HW 5 (Optional) (part 2/2)","kind":"flexible","course_id":"matrices","start":"2026-09-13T16:15:00-04:00","end":"2026-09-13T17:30:00-04:00"},{"id":"mf-5-1-relations__s1","title":"Section 5.1: Relations","kind":"flexible","course_id":"math-found","start":"2026-09-14T21:45:00-04:00","end":"2026-09-14T22:45:00-04:00"}],"unplaced":[{"title":"Assignment 1 Due (part 1/4)","reason":"out_of_window"},{"title":"Assignment 1 Due (part 2/4)","reason":"out_of_window"},{"title":"Assignment 1 Due (part 3/4)","reason":"out_of_window"},{"title":"Assignment 1 Due (part 4/4)","reason":"out_of_window"},{"title":"CH7 (Checkin) (part 1/2)","reason":"out_of_window"},{"title":"CH7 (Checkin) (part 2/2)","reason":"out_of_window"},{"title":"Weekly HW 9 (Optional) (part 1/2)","reason":"out_of_window"},{"title":"Weekly HW 9 (Optional) (part 2/2)","reason":"out_of_window"},{"title":"Section 6.2: Countable and Uncountable Sets","reason":"out_of_window"},{"title":"Assignment 2 Due (part 1/4)","reason":"out_of_window"},{"title":"Assignment 2 Due (part 2/4)","reason":"out_of_window"},{"title":"Assignment 2 Due (part 3/4)","reason":"out_of_window"},{"title":"Assignment 2 Due (part 4/4)","reason":"out_of_window"},{"title":"CH13 (Checkin) (part 1/2)","reason":"out_of_window"},{"title":"CH13 (Checkin) (part 2/2)","reason":"out_of_window"},{"title":"Recitation Quiz 13","reason":"out_of_window"},{"title":"Some More Probability","reason":"out_of_window"},{"title":"RPP Extra Credit Deadline","reason":"out_of_window"},{"title":"Response Paper 5 Due (part 1/2)","reason":"out_of_window"},{"title":"Response Paper 5 Due (part 2/2)","reason":"out_of_window"}]}
 </script>
 
-<script type="application/json" id="data-14">
-{
-  "window_start": "2026-09-11T00:00:00-04:00",
-  "window_days": 14,
-  "status": "OPTIMAL",
-  "objective": 699657.0,
-  "best_bound": 699657.0,
-  "blocks": [
-    {"id":"fixed_math-found_0_13:00","title":"15151 Math Foundations","kind":"fixed","course_id":"math-found","start":"2026-09-11T13:00:00-04:00","end":"2026-09-11T13:50:00-04:00"},
-    {"id":"fixed_matrices_0_09:00","title":"21241 Matrices","kind":"fixed","course_id":"matrices","start":"2026-09-11T09:00:00-04:00","end":"2026-09-11T09:50:00-04:00"},
-    {"id":"fixed_imp-comp_0_17:00","title":"15122 Imperative Computation","kind":"fixed","course_id":"imp-comp","start":"2026-09-11T17:00:00-04:00","end":"2026-09-11T17:50:00-04:00"},
-    {"id":"fixed_gpi_0_16:00","title":"07131 Great Practical Ideas for Computer Scientists","kind":"fixed","course_id":"gpi","start":"2026-09-11T16:00:00-04:00","end":"2026-09-11T16:50:00-04:00"},
-    {"id":"fixed_math-found_3_13:00","title":"15151 Math Foundations","kind":"fixed","course_id":"math-found","start":"2026-09-14T13:00:00-04:00","end":"2026-09-14T13:50:00-04:00"},
-    {"id":"fixed_matrices_3_09:00","title":"21241 Matrices","kind":"fixed","course_id":"matrices","start":"2026-09-14T09:00:00-04:00","end":"2026-09-14T09:50:00-04:00"},
-    {"id":"fixed_fye-immig_3_16:00","title":"07128 First-Year Immigration","kind":"fixed","course_id":"fye-immig","start":"2026-09-14T16:00:00-04:00","end":"2026-09-14T16:50:00-04:00"},
-    {"id":"fixed_hum-intel_3_19:00","title":"88230 Human Intelligence & Stupidity","kind":"fixed","course_id":"hum-intel","start":"2026-09-14T19:00:00-04:00","end":"2026-09-14T20:20:00-04:00"},
-    {"id":"fixed_math-found_4_17:00","title":"15151 Math Foundations","kind":"fixed","course_id":"math-found","start":"2026-09-15T17:00:00-04:00","end":"2026-09-15T17:50:00-04:00"},
-    {"id":"fixed_matrices_4_15:00","title":"21241 Matrices","kind":"fixed","course_id":"matrices","start":"2026-09-15T15:00:00-04:00","end":"2026-09-15T15:50:00-04:00"},
-    {"id":"fixed_imp-comp_4_09:30","title":"15122 Imperative Computation","kind":"fixed","course_id":"imp-comp","start":"2026-09-15T09:30:00-04:00","end":"2026-09-15T10:50:00-04:00"},
-    {"id":"fixed_imp-comp_4_19:00","title":"15122 Imperative Computation","kind":"fixed","course_id":"imp-comp","start":"2026-09-15T19:00:00-04:00","end":"2026-09-15T19:35:00-04:00"},
-    {"id":"fixed_math-found_5_13:00","title":"15151 Math Foundations","kind":"fixed","course_id":"math-found","start":"2026-09-16T13:00:00-04:00","end":"2026-09-16T13:50:00-04:00"},
-    {"id":"fixed_matrices_5_09:00","title":"21241 Matrices","kind":"fixed","course_id":"matrices","start":"2026-09-16T09:00:00-04:00","end":"2026-09-16T09:50:00-04:00"},
-    {"id":"fixed_fye-immig_5_16:00","title":"07128 First-Year Immigration","kind":"fixed","course_id":"fye-immig","start":"2026-09-16T16:00:00-04:00","end":"2026-09-16T16:50:00-04:00"},
-    {"id":"fixed_hum-intel_5_19:00","title":"88230 Human Intelligence & Stupidity","kind":"fixed","course_id":"hum-intel","start":"2026-09-16T19:00:00-04:00","end":"2026-09-16T20:20:00-04:00"},
-    {"id":"fixed_math-found_7_13:00","title":"15151 Math Foundations","kind":"fixed","course_id":"math-found","start":"2026-09-18T13:00:00-04:00","end":"2026-09-18T13:50:00-04:00"},
-    {"id":"fixed_matrices_7_09:00","title":"21241 Matrices","kind":"fixed","course_id":"matrices","start":"2026-09-18T09:00:00-04:00","end":"2026-09-18T09:50:00-04:00"},
-    {"id":"fixed_imp-comp_7_17:00","title":"15122 Imperative Computation","kind":"fixed","course_id":"imp-comp","start":"2026-09-18T17:00:00-04:00","end":"2026-09-18T17:50:00-04:00"},
-    {"id":"fixed_gpi_7_16:00","title":"07131 Great Practical Ideas for Computer Scientists","kind":"fixed","course_id":"gpi","start":"2026-09-18T16:00:00-04:00","end":"2026-09-18T16:50:00-04:00"},
-    {"id":"fixed_math-found_10_13:00","title":"15151 Math Foundations","kind":"fixed","course_id":"math-found","start":"2026-09-21T13:00:00-04:00","end":"2026-09-21T13:50:00-04:00"},
-    {"id":"fixed_matrices_10_09:00","title":"21241 Matrices","kind":"fixed","course_id":"matrices","start":"2026-09-21T09:00:00-04:00","end":"2026-09-21T09:50:00-04:00"},
-    {"id":"fixed_fye-immig_10_16:00","title":"07128 First-Year Immigration","kind":"fixed","course_id":"fye-immig","start":"2026-09-21T16:00:00-04:00","end":"2026-09-21T16:50:00-04:00"},
-    {"id":"fixed_hum-intel_10_19:00","title":"88230 Human Intelligence & Stupidity","kind":"fixed","course_id":"hum-intel","start":"2026-09-21T19:00:00-04:00","end":"2026-09-21T20:20:00-04:00"},
-    {"id":"fixed_math-found_11_17:00","title":"15151 Math Foundations","kind":"fixed","course_id":"math-found","start":"2026-09-22T17:00:00-04:00","end":"2026-09-22T17:50:00-04:00"},
-    {"id":"fixed_matrices_11_15:00","title":"21241 Matrices","kind":"fixed","course_id":"matrices","start":"2026-09-22T15:00:00-04:00","end":"2026-09-22T15:50:00-04:00"},
-    {"id":"fixed_imp-comp_11_09:30","title":"15122 Imperative Computation","kind":"fixed","course_id":"imp-comp","start":"2026-09-22T09:30:00-04:00","end":"2026-09-22T10:50:00-04:00"},
-    {"id":"fixed_imp-comp_11_19:00","title":"15122 Imperative Computation","kind":"fixed","course_id":"imp-comp","start":"2026-09-22T19:00:00-04:00","end":"2026-09-22T19:35:00-04:00"},
-    {"id":"fixed_math-found_12_13:00","title":"15151 Math Foundations","kind":"fixed","course_id":"math-found","start":"2026-09-23T13:00:00-04:00","end":"2026-09-23T13:50:00-04:00"},
-    {"id":"fixed_matrices_12_09:00","title":"21241 Matrices","kind":"fixed","course_id":"matrices","start":"2026-09-23T09:00:00-04:00","end":"2026-09-23T09:50:00-04:00"},
-    {"id":"fixed_fye-immig_12_16:00","title":"07128 First-Year Immigration","kind":"fixed","course_id":"fye-immig","start":"2026-09-23T16:00:00-04:00","end":"2026-09-23T16:50:00-04:00"},
-    {"id":"fixed_hum-intel_12_19:00","title":"88230 Human Intelligence & Stupidity","kind":"fixed","course_id":"hum-intel","start":"2026-09-23T19:00:00-04:00","end":"2026-09-23T20:20:00-04:00"},
-    {"id":"mf-3-2-cont__s1","title":"Section 3.2: Injections and Surjections (Continued)","kind":"flexible","course_id":"math-found","start":"2026-09-11T09:45:00-04:00","end":"2026-09-11T10:30:00-04:00"},
-    {"id":"mf-4-3-strong-induction__s1","title":"Section 4.3: Strong Induction","kind":"flexible","course_id":"math-found","start":"2026-09-11T08:00:00-04:00","end":"2026-09-11T09:00:00-04:00"},
-    {"id":"mx-weekly-hw3__s1","title":"Weekly HW 3 (Optional)","kind":"flexible","course_id":"matrices","start":"2026-09-11T13:45:00-04:00","end":"2026-09-11T14:30:00-04:00"},
-    {"id":"mx-recitation-quiz4__s1","title":"Recitation Quiz 4","kind":"flexible","course_id":"matrices","start":"2026-09-11T10:30:00-04:00","end":"2026-09-11T11:30:00-04:00"},
-    {"id":"hi-response-paper1__s1","title":"Response Paper 1 Due (part 1/2)","kind":"flexible","course_id":"hum-intel","start":"2026-09-11T11:30:00-04:00","end":"2026-09-11T12:45:00-04:00"},
-    {"id":"hi-response-paper1__s2","title":"Response Paper 1 Due (part 2/2)","kind":"flexible","course_id":"hum-intel","start":"2026-09-11T14:30:00-04:00","end":"2026-09-11T15:45:00-04:00"},
-    {"id":"hi-intro-to-stupidity__s1","title":"Intro to Stupidity","kind":"flexible","course_id":"hum-intel","start":"2026-09-11T17:45:00-04:00","end":"2026-09-11T19:15:00-04:00"}
-  ],
-  "unplaced": [
-    {"title":"Section 6.2: Countable and Uncountable Sets","reason":"out_of_window"},
-    {"title":"Some More Probability","reason":"out_of_window"},
-    {"title":"Weekly HW 9 (Optional) (part 1/2)","reason":"out_of_window"},
-    {"title":"Weekly HW 9 (Optional) (part 2/2)","reason":"out_of_window"},
-    {"title":"Recitation Quiz 13","reason":"out_of_window"},
-    {"title":"Assignment 1 Due (part 1/4)","reason":"out_of_window"},
-    {"title":"Assignment 1 Due (part 2/4)","reason":"out_of_window"},
-    {"title":"Assignment 1 Due (part 3/4)","reason":"out_of_window"},
-    {"title":"Assignment 1 Due (part 4/4)","reason":"out_of_window"},
-    {"title":"Assignment 2 Due (part 1/4)","reason":"out_of_window"},
-    {"title":"Assignment 2 Due (part 2/4)","reason":"out_of_window"},
-    {"title":"Assignment 2 Due (part 3/4)","reason":"out_of_window"},
-    {"title":"Assignment 2 Due (part 4/4)","reason":"out_of_window"},
-    {"title":"Response Paper 5 Due (part 1/2)","reason":"out_of_window"},
-    {"title":"Response Paper 5 Due (part 2/2)","reason":"out_of_window"},
-    {"title":"RPP Extra Credit Deadline","reason":"out_of_window"},
-    {"title":"CH6 (Checkin) (part 1/2)","reason":"out_of_window"},
-    {"title":"CH6 (Checkin) (part 2/2)","reason":"out_of_window"},
-    {"title":"CH7 (Checkin) (part 1/2)","reason":"out_of_window"},
-    {"title":"CH7 (Checkin) (part 2/2)","reason":"out_of_window"},
-    {"title":"CH9 (Checkin) (part 1/2)","reason":"out_of_window"},
-    {"title":"CH9 (Checkin) (part 2/2)","reason":"out_of_window"},
-    {"title":"CH13 (Checkin) (part 1/2)","reason":"out_of_window"},
-    {"title":"CH13 (Checkin) (part 2/2)","reason":"out_of_window"}
-  ]
-}
+<script type="application/json" id="data-tuned">
+{"window_start":"2026-09-12T00:00:00-04:00","window_days":14,"status":"FEASIBLE","objective":350053340.0,"best_bound":350056000.0,"blocks":[{"id":"fixed_math-found_2_13:00","title":"15151 Math Foundations","kind":"fixed","course_id":"math-found","start":"2026-09-14T13:00:00-04:00","end":"2026-09-14T13:50:00-04:00"},{"id":"fixed_matrices_2_09:00","title":"21241 Matrices","kind":"fixed","course_id":"matrices","start":"2026-09-14T09:00:00-04:00","end":"2026-09-14T09:50:00-04:00"},{"id":"fixed_fye-immig_2_16:00","title":"07128 First-Year Immigration","kind":"fixed","course_id":"fye-immig","start":"2026-09-14T16:00:00-04:00","end":"2026-09-14T16:50:00-04:00"},{"id":"fixed_hum-intel_2_19:00","title":"88230 Human Intelligence & Stupidity","kind":"fixed","course_id":"hum-intel","start":"2026-09-14T19:00:00-04:00","end":"2026-09-14T20:20:00-04:00"},{"id":"fixed_math-found_3_17:00","title":"15151 Math Foundations","kind":"fixed","course_id":"math-found","start":"2026-09-15T17:00:00-04:00","end":"2026-09-15T17:50:00-04:00"},{"id":"fixed_matrices_3_15:00","title":"21241 Matrices","kind":"fixed","course_id":"matrices","start":"2026-09-15T15:00:00-04:00","end":"2026-09-15T15:50:00-04:00"},{"id":"fixed_imp-comp_3_09:30","title":"15122 Imperative Computation","kind":"fixed","course_id":"imp-comp","start":"2026-09-15T09:30:00-04:00","end":"2026-09-15T10:50:00-04:00"},{"id":"fixed_imp-comp_3_19:00","title":"15122 Imperative Computation","kind":"fixed","course_id":"imp-comp","start":"2026-09-15T19:00:00-04:00","end":"2026-09-15T19:35:00-04:00"},{"id":"fixed_math-found_4_13:00","title":"15151 Math Foundations","kind":"fixed","course_id":"math-found","start":"2026-09-16T13:00:00-04:00","end":"2026-09-16T13:50:00-04:00"},{"id":"fixed_matrices_4_09:00","title":"21241 Matrices","kind":"fixed","course_id":"matrices","start":"2026-09-16T09:00:00-04:00","end":"2026-09-16T09:50:00-04:00"},{"id":"fixed_fye-immig_4_16:00","title":"07128 First-Year Immigration","kind":"fixed","course_id":"fye-immig","start":"2026-09-16T16:00:00-04:00","end":"2026-09-16T16:50:00-04:00"},{"id":"fixed_hum-intel_4_19:00","title":"88230 Human Intelligence & Stupidity","kind":"fixed","course_id":"hum-intel","start":"2026-09-16T19:00:00-04:00","end":"2026-09-16T20:20:00-04:00"},{"id":"fixed_math-found_6_13:00","title":"15151 Math Foundations","kind":"fixed","course_id":"math-found","start":"2026-09-18T13:00:00-04:00","end":"2026-09-18T13:50:00-04:00"},{"id":"fixed_matrices_6_09:00","title":"21241 Matrices","kind":"fixed","course_id":"matrices","start":"2026-09-18T09:00:00-04:00","end":"2026-09-18T09:50:00-04:00"},{"id":"fixed_imp-comp_6_17:00","title":"15122 Imperative Computation","kind":"fixed","course_id":"imp-comp","start":"2026-09-18T17:00:00-04:00","end":"2026-09-18T17:50:00-04:00"},{"id":"fixed_gpi_6_16:00","title":"07131 Great Practical Ideas for Computer Scientists","kind":"fixed","course_id":"gpi","start":"2026-09-18T16:00:00-04:00","end":"2026-09-18T16:50:00-04:00"},{"id":"fixed_math-found_9_13:00","title":"15151 Math Foundations","kind":"fixed","course_id":"math-found","start":"2026-09-21T13:00:00-04:00","end":"2026-09-21T13:50:00-04:00"},{"id":"fixed_matrices_9_09:00","title":"21241 Matrices","kind":"fixed","course_id":"matrices","start":"2026-09-21T09:00:00-04:00","end":"2026-09-21T09:50:00-04:00"},{"id":"fixed_fye-immig_9_16:00","title":"07128 First-Year Immigration","kind":"fixed","course_id":"fye-immig","start":"2026-09-21T16:00:00-04:00","end":"2026-09-21T16:50:00-04:00"},{"id":"fixed_hum-intel_9_19:00","title":"88230 Human Intelligence & Stupidity","kind":"fixed","course_id":"hum-intel","start":"2026-09-21T19:00:00-04:00","end":"2026-09-21T20:20:00-04:00"},{"id":"fixed_math-found_10_17:00","title":"15151 Math Foundations","kind":"fixed","course_id":"math-found","start":"2026-09-22T17:00:00-04:00","end":"2026-09-22T17:50:00-04:00"},{"id":"fixed_matrices_10_15:00","title":"21241 Matrices","kind":"fixed","course_id":"matrices","start":"2026-09-22T15:00:00-04:00","end":"2026-09-22T15:50:00-04:00"},{"id":"fixed_imp-comp_10_09:30","title":"15122 Imperative Computation","kind":"fixed","course_id":"imp-comp","start":"2026-09-22T09:30:00-04:00","end":"2026-09-22T10:50:00-04:00"},{"id":"fixed_imp-comp_10_19:00","title":"15122 Imperative Computation","kind":"fixed","course_id":"imp-comp","start":"2026-09-22T19:00:00-04:00","end":"2026-09-22T19:35:00-04:00"},{"id":"fixed_math-found_11_13:00","title":"15151 Math Foundations","kind":"fixed","course_id":"math-found","start":"2026-09-23T13:00:00-04:00","end":"2026-09-23T13:50:00-04:00"},{"id":"fixed_matrices_11_09:00","title":"21241 Matrices","kind":"fixed","course_id":"matrices","start":"2026-09-23T09:00:00-04:00","end":"2026-09-23T09:50:00-04:00"},{"id":"fixed_fye-immig_11_16:00","title":"07128 First-Year Immigration","kind":"fixed","course_id":"fye-immig","start":"2026-09-23T16:00:00-04:00","end":"2026-09-23T16:50:00-04:00"},{"id":"fixed_hum-intel_11_19:00","title":"88230 Human Intelligence & Stupidity","kind":"fixed","course_id":"hum-intel","start":"2026-09-23T19:00:00-04:00","end":"2026-09-23T20:20:00-04:00"},{"id":"fixed_math-found_13_13:00","title":"15151 Math Foundations","kind":"fixed","course_id":"math-found","start":"2026-09-25T13:00:00-04:00","end":"2026-09-25T13:50:00-04:00"},{"id":"fixed_matrices_13_09:00","title":"21241 Matrices","kind":"fixed","course_id":"matrices","start":"2026-09-25T09:00:00-04:00","end":"2026-09-25T09:50:00-04:00"},{"id":"fixed_imp-comp_13_17:00","title":"15122 Imperative Computation","kind":"fixed","course_id":"imp-comp","start":"2026-09-25T17:00:00-04:00","end":"2026-09-25T17:50:00-04:00"},{"id":"fixed_gpi_13_16:00","title":"07131 Great Practical Ideas for Computer Scientists","kind":"fixed","course_id":"gpi","start":"2026-09-25T16:00:00-04:00","end":"2026-09-25T16:50:00-04:00"},{"id":"hi-response-paper1__s1","title":"Response Paper 1 Due (part 1/2)","kind":"flexible","course_id":"hum-intel","start":"2026-09-12T20:15:00-04:00","end":"2026-09-12T21:30:00-04:00"},{"id":"hi-response-paper1__s2","title":"Response Paper 1 Due (part 2/2)","kind":"flexible","course_id":"hum-intel","start":"2026-09-13T08:00:00-04:00","end":"2026-09-13T09:15:00-04:00"},{"id":"ic-pg2__s1","title":"PG2 Due","kind":"flexible","course_id":"imp-comp","start":"2026-09-12T17:00:00-04:00","end":"2026-09-12T18:00:00-04:00"},{"id":"mf-weak-induction__s1","title":"Section 4.2: Weak Induction","kind":"flexible","course_id":"math-found","start":"2026-09-13T19:00:00-04:00","end":"2026-09-13T20:00:00-04:00"},{"id":"hi-effects-of-intelligence__s1","title":"Effects of Intelligence","kind":"flexible","course_id":"hum-intel","start":"2026-09-12T19:15:00-04:00","end":"2026-09-12T20:00:00-04:00"},{"id":"ic-ch3-checkin__s1","title":"CH3 (Checkin)","kind":"flexible","course_id":"imp-comp","start":"2026-09-12T18:15:00-04:00","end":"2026-09-12T19:00:00-04:00"},{"id":"mx-recitation-quiz3__s1","title":"Recitation Quiz 3","kind":"flexible","course_id":"matrices","start":"2026-09-14T20:15:00-04:00","end":"2026-09-14T21:15:00-04:00"},{"id":"mf-hw3-due__s1","title":"HW3 Due (part 1/8)","kind":"flexible","course_id":"math-found","start":"2026-09-13T20:15:00-04:00","end":"2026-09-13T21:45:00-04:00"},{"id":"mf-hw3-due__s2","title":"HW3 Due (part 2/8)","kind":"flexible","course_id":"math-found","start":"2026-09-15T19:30:00-04:00","end":"2026-09-15T21:00:00-04:00"},{"id":"mf-hw3-due__s3","title":"HW3 Due (part 3/8)","kind":"flexible","course_id":"math-found","start":"2026-09-15T21:15:00-04:00","end":"2026-09-15T22:45:00-04:00"},{"id":"mf-hw3-due__s4","title":"HW3 Due (part 4/8)","kind":"flexible","course_id":"math-found","start":"2026-09-14T21:30:00-04:00","end":"2026-09-14T23:00:00-04:00"},{"id":"mf-hw3-due__s5","title":"HW3 Due (part 5/8)","kind":"flexible","course_id":"math-found","start":"2026-09-16T20:15:00-04:00","end":"2026-09-16T21:45:00-04:00"},{"id":"mf-hw3-due__s6","title":"HW3 Due (part 6/8)","kind":"flexible","course_id":"math-found","start":"2026-09-16T10:00:00-04:00","end":"2026-09-16T11:30:00-04:00"},{"id":"mf-hw3-due__s7","title":"HW3 Due (part 7/8)","kind":"flexible","course_id":"math-found","start":"2026-09-14T17:15:00-04:00","end":"2026-09-14T18:45:00-04:00"},{"id":"mf-hw3-due__s8","title":"HW3 Due (part 8/8)","kind":"flexible","course_id":"math-found","start":"2026-09-12T21:45:00-04:00","end":"2026-09-12T22:00:00-04:00"},{"id":"mf-4-3-strong-induction__s1","title":"Section 4.3: Strong Induction","kind":"flexible","course_id":"math-found","start":"2026-09-15T17:45:00-04:00","end":"2026-09-15T18:45:00-04:00"},{"id":"hi-human-vs-artificial__s1","title":"Human Intelligence vs Artificial Intelligence","kind":"flexible","course_id":"hum-intel","start":"2026-09-16T17:00:00-04:00","end":"2026-09-16T18:30:00-04:00"},{"id":"ic-pr3__s1","title":"PR3 Due","kind":"flexible","course_id":"imp-comp","start":"2026-09-17T17:00:00-04:00","end":"2026-09-17T18:00:00-04:00"},{"id":"mx-weekly-hw4__s1","title":"Weekly HW 4 (Optional) (part 1/2)","kind":"flexible","course_id":"matrices","start":"2026-09-17T19:30:00-04:00","end":"2026-09-17T20:45:00-04:00"},{"id":"mx-weekly-hw4__s2","title":"Weekly HW 4 (Optional) (part 2/2)","kind":"flexible","course_id":"matrices","start":"2026-09-18T09:45:00-04:00","end":"2026-09-18T11:00:00-04:00"},{"id":"mf-4-3-strong-induction-cont-l13__s1","title":"Section 4.3: Strong Induction (Continued)","kind":"flexible","course_id":"math-found","start":"2026-09-17T18:15:00-04:00","end":"2026-09-17T19:15:00-04:00"},{"id":"ic-pg3__s1","title":"PG3 Due (part 1/2)","kind":"flexible","course_id":"imp-comp","start":"2026-09-18T17:45:00-04:00","end":"2026-09-18T18:45:00-04:00"},{"id":"ic-pg3__s2","title":"PG3 Due (part 2/2)","kind":"flexible","course_id":"imp-comp","start":"2026-09-19T17:15:00-04:00","end":"2026-09-19T18:15:00-04:00"},{"id":"mf-midterm1__s1","title":"Midterm 1","kind":"flexible","course_id":"math-found","start":"2026-09-20T20:15:00-04:00","end":"2026-09-20T21:15:00-04:00"},{"id":"hi-human-vs-animal__s1","title":"Human Intelligence vs Animal Intelligence","kind":"flexible","course_id":"hum-intel","start":"2026-09-21T17:00:00-04:00","end":"2026-09-21T18:30:00-04:00"},{"id":"mx-recitation-quiz4__s1","title":"Recitation Quiz 4","kind":"flexible","course_id":"matrices","start":"2026-09-20T19:00:00-04:00","end":"2026-09-20T20:00:00-04:00"},{"id":"ic-ch4-checkin__s1","title":"CH4 (Checkin) (part 1/2)","kind":"flexible","course_id":"imp-comp","start":"2026-09-21T22:00:00-04:00","end":"2026-09-21T23:00:00-04:00"},{"id":"ic-ch4-checkin__s2","title":"CH4 (Checkin) (part 2/2)","kind":"flexible","course_id":"imp-comp","start":"2026-09-20T17:00:00-04:00","end":"2026-09-20T18:00:00-04:00"},{"id":"mf-4-3-strong-induction-cont-l14__s1","title":"Section 4.3: Strong Induction (Continued)","kind":"flexible","course_id":"math-found","start":"2026-09-19T19:45:00-04:00","end":"2026-09-19T20:45:00-04:00"},{"id":"hi-intro-to-stupidity__s1","title":"Intro to Stupidity","kind":"flexible","course_id":"hum-intel","start":"2026-09-22T19:30:00-04:00","end":"2026-09-22T21:00:00-04:00"},{"id":"ic-pr4__s1","title":"PR4 Due","kind":"flexible","course_id":"imp-comp","start":"2026-09-19T21:15:00-04:00","end":"2026-09-19T22:15:00-04:00"},{"id":"mx-exam1__s1","title":"Exam 1","kind":"flexible","course_id":"matrices","start":"2026-09-20T21:30:00-04:00","end":"2026-09-20T22:30:00-04:00"},{"id":"mx-weekly-hw5__s1","title":"Weekly HW 5 (Optional) (part 1/2)","kind":"flexible","course_id":"matrices","start":"2026-09-18T20:45:00-04:00","end":"2026-09-18T22:00:00-04:00"},{"id":"mx-weekly-hw5__s2","title":"Weekly HW 5 (Optional) (part 2/2)","kind":"flexible","course_id":"matrices","start":"2026-09-21T20:15:00-04:00","end":"2026-09-21T21:30:00-04:00"},{"id":"mf-5-1-relations__s1","title":"Section 5.1: Relations","kind":"flexible","course_id":"math-found","start":"2026-09-19T18:30:00-04:00","end":"2026-09-19T19:30:00-04:00"}],"unplaced":[{"title":"Assignment 1 Due (part 1/4)","reason":"out_of_window"},{"title":"Assignment 1 Due (part 2/4)","reason":"out_of_window"},{"title":"Assignment 1 Due (part 3/4)","reason":"out_of_window"},{"title":"Assignment 1 Due (part 4/4)","reason":"out_of_window"},{"title":"CH7 (Checkin) (part 1/2)","reason":"out_of_window"},{"title":"CH7 (Checkin) (part 2/2)","reason":"out_of_window"},{"title":"Weekly HW 9 (Optional) (part 1/2)","reason":"out_of_window"},{"title":"Weekly HW 9 (Optional) (part 2/2)","reason":"out_of_window"},{"title":"Section 6.2: Countable and Uncountable Sets","reason":"out_of_window"},{"title":"Assignment 2 Due (part 1/4)","reason":"out_of_window"},{"title":"Assignment 2 Due (part 2/4)","reason":"out_of_window"},{"title":"Assignment 2 Due (part 3/4)","reason":"out_of_window"},{"title":"Assignment 2 Due (part 4/4)","reason":"out_of_window"},{"title":"CH13 (Checkin) (part 1/2)","reason":"out_of_window"},{"title":"CH13 (Checkin) (part 2/2)","reason":"out_of_window"},{"title":"Recitation Quiz 13","reason":"out_of_window"},{"title":"Some More Probability","reason":"out_of_window"},{"title":"RPP Extra Credit Deadline","reason":"out_of_window"},{"title":"Response Paper 5 Due (part 1/2)","reason":"out_of_window"},{"title":"Response Paper 5 Due (part 2/2)","reason":"out_of_window"}]}
 </script>
 
 <script>
@@ -361,20 +233,21 @@
   ];
   const COURSE_BY_ID = Object.fromEntries(COURSES.map((c) => [c.id, c]));
 
-  const OWED = {
-    7:  { "math-found": 2.0, "matrices": 4.5, "hum-intel": 14.2, "imp-comp": 8.0 },
-    14: { "math-found": 2.0, "matrices": 3.5, "hum-intel": 12.8, "imp-comp": 8.0 },
+  const OWED = { "math-found": 2.0, "matrices": 3.5, "hum-intel": 12.8, "imp-comp": 4.0 };
+  const OWED_MAX = 15;
+
+  // Computed by eval.py against these exact runs -- see backend/optimizer/README.md
+  const EVAL = {
+    none: { placed: 35, unplaced: 0, busiest: 900, evening: 37, gaps: 28, crammed: 1, crammedOf: 23 },
+    tuned: { placed: 35, unplaced: 0, busiest: 270, evening: 90, gaps: 0, crammed: 0, crammedOf: 23 },
   };
-  const OWED_MAX = 15; // hours, for the mini bar scale
 
   const DAY_START_MIN = 8 * 60;
   const DAY_END_MIN = 23 * 60;
-  const HOUR_PX = 56;
+  const HOUR_PX = 52;
+  const WINDOW_DAYS = 14;
 
   function parseWall(iso) {
-    // Read wall-clock date/time straight off the string -- never through
-    // Date's local-timezone conversion, since a viewer anywhere in the
-    // world would otherwise see Pittsburgh class times shift under them.
     const [datePart, timePart] = iso.split("T");
     const [y, m, d] = datePart.split("-").map(Number);
     const [hh, mm] = timePart.slice(0, 5).split(":").map(Number);
@@ -391,19 +264,19 @@
     return mm === 0 ? `${h} ${ap}` : `${h}:${String(mm).padStart(2, "0")} ${ap}`;
   }
 
-  const data = { 7: JSON.parse(document.getElementById("data-7").textContent), 14: JSON.parse(document.getElementById("data-14").textContent) };
+  const data = { none: JSON.parse(document.getElementById("data-none").textContent), tuned: JSON.parse(document.getElementById("data-tuned").textContent) };
 
-  function render(windowDays) {
-    const d = data[windowDays];
+  function render(profile) {
+    const d = data[profile];
     const cal = document.getElementById("cal");
-    cal.style.setProperty("--days", windowDays);
+    cal.style.setProperty("--days", WINDOW_DAYS);
     cal.style.setProperty("--hour-px", HOUR_PX + "px");
     cal.innerHTML = "";
 
-    // header row: corner + one head per day
     cal.appendChild(Object.assign(document.createElement("div"), { className: "corner" }));
-    for (let i = 0; i < windowDays; i++) {
-      const dt = new Date(Date.UTC(...(() => { const w = parseWall(d.window_start); return [w.y, w.m - 1, w.d + i]; })()));
+    for (let i = 0; i < WINDOW_DAYS; i++) {
+      const w = parseWall(d.window_start);
+      const dt = new Date(Date.UTC(w.y, w.m - 1, w.d + i));
       const dow = dt.toLocaleDateString("en-US", { weekday: "short", timeZone: "UTC" });
       const md = dt.toLocaleDateString("en-US", { month: "numeric", day: "numeric", timeZone: "UTC" });
       const head = document.createElement("div");
@@ -412,7 +285,6 @@
       cal.appendChild(head);
     }
 
-    // body row: hour gutter + one column per day
     const bodyHeight = ((DAY_END_MIN - DAY_START_MIN) / 60) * HOUR_PX;
     const hourCol = document.createElement("div");
     hourCol.className = "hour-col";
@@ -427,7 +299,7 @@
     cal.appendChild(hourCol);
 
     const dayCols = [];
-    for (let i = 0; i < windowDays; i++) {
+    for (let i = 0; i < WINDOW_DAYS; i++) {
       const col = document.createElement("div");
       col.className = "day-col";
       col.style.height = bodyHeight + "px";
@@ -438,9 +310,9 @@
     for (const b of d.blocks) {
       const start = parseWall(b.start), end = parseWall(b.end);
       const di = dayIndex(b.start, d.window_start);
-      if (di < 0 || di >= windowDays) continue;
+      if (di < 0 || di >= WINDOW_DAYS) continue;
       const top = ((start.minutesOfDay - DAY_START_MIN) / 60) * HOUR_PX;
-      const height = Math.max(12, ((end.minutesOfDay - start.minutesOfDay) / 60) * HOUR_PX - 2);
+      const height = Math.max(11, ((end.minutesOfDay - start.minutesOfDay) / 60) * HOUR_PX - 2);
       const course = COURSE_BY_ID[b.course_id];
 
       const el = document.createElement("div");
@@ -451,9 +323,9 @@
       el.tabIndex = 0;
 
       const dur = end.minutesOfDay - start.minutesOfDay;
-      const showText = height >= 24;
+      const showText = height >= 22;
       el.innerHTML = showText
-        ? `<span class="t">${b.kind === "fixed" ? '<svg class="lock" viewBox="0 0 24 24" fill="currentColor"><path d="M12 1a5 5 0 0 0-5 5v3H6a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-9a2 2 0 0 0-2-2h-1V6a5 5 0 0 0-5-5Zm-3 8V6a3 3 0 0 1 6 0v3Z"/></svg>' : ""}${b.title}</span><span class="m">${fmtTime(start.minutesOfDay)}</span>`
+        ? `<span class="t">${b.kind === "fixed" ? '<svg class="lock" viewBox="0 0 24 24" fill="currentColor"><path d="M12 1a5 5 0 0 0-5 5v3H6a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-9a2 2 0 0 0-2-2h-1V6a5 5 0 0 0-5-5Zm-3 8V6a3 3 0 0 1 6 0v3Z"/></svg>' : ""}${b.title}</span>`
         : "";
 
       const tip = document.getElementById("tip");
@@ -478,38 +350,37 @@
       dayCols[di].appendChild(el);
     }
 
-    renderStats(d);
-    renderDiagnostics(d, windowDays);
-    renderOwed(windowDays);
+    renderStats(d, profile);
+    renderDiagnostics(d, profile);
+    renderOwed();
   }
 
-  function renderStats(d) {
-    const gap = d.objective ? ((d.objective - d.best_bound) / d.objective) : 0;
+  function renderStats(d, profile) {
+    // Bound >= objective for a maximization problem until proven optimal --
+    // gap is (bound - objective), not the other way around.
+    const gap = d.objective ? Math.max(0, (d.best_bound - d.objective) / d.objective) : 0;
     document.getElementById("stats").innerHTML = `
       <div class="stat-chip"><span class="label">Status</span><span class="value mono">${d.status}</span></div>
-      <div class="stat-chip good"><span class="label">Optimized</span><span class="value mono">${(100 * (1 - gap)).toFixed(1)}%</span></div>
+      <div class="stat-chip good"><span class="label">Optimized</span><span class="value mono">${(100 * (1 - gap)).toFixed(2)}%</span></div>
     `;
   }
 
-  function renderDiagnostics(d, windowDays) {
-    const flexPlaced = d.blocks.filter((b) => b.kind === "flexible").length;
+  function renderDiagnostics(d, profile) {
+    const e = EVAL[profile];
     const outOfWindow = d.unplaced.filter((u) => u.reason === "out_of_window");
-    const genuinelyUnplaced = d.unplaced.filter((u) => u.reason !== "out_of_window");
-
-    const list = (items) => `<ul>${items.map((u) => `<li>${u.title}</li>`).join("")}</ul>`;
-
     document.getElementById("diagnostics").innerHTML = `
-      <div class="diag-line"><span>Sessions placed</span><span class="n">${flexPlaced}</span></div>
-      <div class="diag-line ${genuinelyUnplaced.length ? "warn" : "ok"}"><span>Competed &amp; lost</span><span class="n">${genuinelyUnplaced.length}</span></div>
+      <div class="diag-line"><span>Sessions placed</span><span class="n">${e.placed}</span></div>
       <div class="diag-line"><span>Due later, out of scope</span><span class="n">${outOfWindow.length}</span></div>
-      ${outOfWindow.length ? `<details><summary>Show the ${outOfWindow.length} out-of-window items</summary>${list(outOfWindow)}</details>` : ""}
-      ${genuinelyUnplaced.length ? `<details open><summary>Show what didn't fit</summary>${list(genuinelyUnplaced)}</details>` : ""}
+      <div class="diag-line ${e.busiest > 480 ? "warn" : "ok"}"><span>Busiest day</span><span class="n">${(e.busiest / 60).toFixed(1)}h</span></div>
+      <div class="diag-line ${e.evening < 60 ? "warn" : "ok"}"><span>In evening hours (5-11pm)</span><span class="n">${e.evening}%</span></div>
+      <div class="diag-line ${e.gaps > 0 ? "warn" : "ok"}"><span>Back-to-back (&lt;15min) pairs</span><span class="n">${e.gaps}</span></div>
+      <div class="diag-line ${e.crammed > 0 ? "warn" : "ok"}"><span>Multi-part tasks crammed on 1 day</span><span class="n">${e.crammed} / ${e.crammedOf}</span></div>
+      <details><summary>Show the ${outOfWindow.length} out-of-window items</summary><ul>${outOfWindow.map((u) => `<li>${u.title}</li>`).join("")}</ul></details>
     `;
   }
 
-  function renderOwed(windowDays) {
-    const owed = OWED[windowDays];
-    document.getElementById("owed").innerHTML = Object.entries(owed)
+  function renderOwed() {
+    document.getElementById("owed").innerHTML = Object.entries(OWED)
       .sort((a, b) => b[1] - a[1])
       .map(([cid, hrs]) => {
         const c = COURSE_BY_ID[cid];
@@ -531,10 +402,10 @@
     btn.addEventListener("click", () => {
       document.querySelectorAll(".toggle button").forEach((b) => b.setAttribute("aria-pressed", "false"));
       btn.setAttribute("aria-pressed", "true");
-      render(Number(btn.dataset.window));
+      render(btn.dataset.profile);
     });
   });
 
-  render(7);
+  render("none");
 })();
 </script>

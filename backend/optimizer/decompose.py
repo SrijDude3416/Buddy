@@ -9,6 +9,7 @@ defaults. Treat those constants as placeholders, not decisions.
 """
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
 from data_loader import Task
@@ -28,8 +29,11 @@ class Session:
     due_at: object  # datetime, kept loose to avoid circular import noise
 
 
-def _round_to_slot(minutes: int) -> int:
-    return max(SLOT_MINUTES, round(minutes / SLOT_MINUTES) * SLOT_MINUTES)
+def _round_to_slot(minutes: float) -> int:
+    # Round UP, never to nearest: a 50-minute exam rounding down to 45 would
+    # silently give it 5 fewer minutes than it actually needs. Overestimating
+    # is harmless slack; underestimating a fixed sitting is a real error.
+    return max(SLOT_MINUTES, math.ceil(minutes / SLOT_MINUTES) * SLOT_MINUTES)
 
 
 def decompose_task(task: Task) -> list[Session]:
