@@ -45,10 +45,17 @@ violates one of these as a regression, not a simplification, even if it looks cl
   backend tells the user exactly what to do in a given session ("work through 10
   practice problems from the study guide"), not just when to sit down. This is the
   fatigue-reduction feature — don't flatten it back into a bare title + checkbox.
-- **Never brand the product as a calendar.** The word "calendar" shouldn't appear as a
-  nav label or primary framing anywhere in the UI. Time structure (locked blocks,
-  relative deadlines, load-by-day) is communicated without presenting the app as a
-  calendar product. The main hub tab is called **Plan**, not Calendar.
+- **~~Never brand the product as a calendar.~~ — SUPERSEDED (owner decision).** The Plan
+  tab now leads with a real calendar grid: a time axis, blocks positioned by start time
+  and sized by duration, fixed class blocks and flexible sessions on the same grid. The
+  reasoning that produced the original rule still stands for everything *around* the
+  grid, and those parts are unchanged: the hub tab is still called **Plan**, deadlines
+  are still expressed relatively ("Midterm in 12 days"), and the calendar is a *view of*
+  the optimizer's output, not an editing surface — there is no drag-to-move, no
+  click-to-create, and the only way to change placement is still to ask Buddy. What was
+  dropped is the avoidance of the grid itself, because a student reading a week of
+  scheduled sessions needs a time axis to read it against. If you are tempted to add
+  direct manipulation to the grid, that is the line this bullet still guards.
 - **The task page leads with why, not a due-date form.** No priority dropdowns, no
   manual due-date fields, no checkbox-first layout. Rescheduling happens by talking to
   Buddy, not by editing a field. A task page that becomes a generic checklist (Todoist,
@@ -107,7 +114,11 @@ implementation (none of it is wired to a real backend yet):
    multiple-choice/dropdown, never free text. Current questions: which classes, when
    you're most focused, outside commitments, how you like to work (session length),
    and what's weighing on you most right now (drives the tone/framing of the first
-   generated task, not just its content).
+   generated task, not just its content). The class question is a **multi-select
+   dropdown over the shared course catalog** (`GET /courses`), not a hardcoded list of
+   names — typing only filters, and the only committable values are real catalog
+   entries, so a pick carries its `_id`, `code` and `meeting_times` straight into the
+   plan. That is what makes fixed blocks real class times instead of invented ones.
 2. **First look** — immediately after generation, the *same* generated plan is shown
    through three switchable views, not a single table:
    - **Radial** — a real 24-hour dial (actual times mapped to angles), fixed blocks
@@ -120,13 +131,26 @@ implementation (none of it is wired to a real backend yet):
    styling, same cards, same palette) but functionally stripped down — no Classes tab,
    no persistent sidebar, no task drill-down — so a brand-new user isn't dropped into
    the full app's surface area on day one.
-3. **Main hub** — two tabs, **Plan** and **Classes**, plus a chat icon that toggles a
-   slide-in sidebar (closed by default, never auto-opens).
-   - **Plan**: *Today* — fixed blocks and flexible sessions merged into one
-     chronologically-sorted list (real time parsing, not type-based ordering). Fixed
-     blocks render as dark, non-interactive, lock-icon chips. *This week* — a lightweight
-     load-by-day strip, not an hour grid. *Coming up* — goals/deadlines expressed with
-     relative time ("Midterm in 12 days"), not absolute dates.
+3. **Main hub** — two tabs, **Plan** and **Classes**, a light/dark/system theme control,
+   plus an "Ask Buddy" button that toggles a slide-in sidebar (closed by default, never
+   auto-opens).
+   - **Plan** is a three-band layout:
+     1. **Calendar + class color key**, side by side. The calendar is a real grid (hour
+        axis, blocks placed by `sessions.start` and sized by `duration_min`, week or
+        single-day range, a "now" line on today, overlapping blocks split into
+        side-by-side lanes rather than hiding each other). Fixed blocks render dark with
+        a lock and are not clickable; flexible sessions are tinted in their class color
+        and open the task. The key on the right doubles as a per-class progress and
+        next-deadline panel.
+     2. **Goal swimlanes** directly underneath, for whichever day is selected in the
+        calendar. **Rows are goals, not days** — every session sits under the class it
+        serves, on the same time axis as the grid above it. The calendar answers "when is
+        my time going", the swimlanes answer "what is it going toward". A class with
+        nothing that day still gets an empty lane, because that is information too.
+     3. **Coming up** — deadlines in relative time ("Midterm in 12 days"), never absolute
+        dates.
+   - The old *Today* list and *this week* load strip were both subsumed by the calendar,
+     which shows the same information positioned in real time, and were removed.
    - **Classes** (auxiliary feature): pick a class, see a month-by-month unit/topic
      breakdown. Each topic has a "Resources" action that opens the chat sidebar seeded
      with a request for that specific topic.
@@ -140,6 +164,18 @@ implementation (none of it is wired to a real backend yet):
 
 ### Design system
 
+**Light and dark are both first-class**, with a three-state control (light / dark /
+system). "System" genuinely follows `prefers-color-scheme` and keeps following it when
+the OS flips; an explicit choice is stored in `localStorage` and wins until cleared.
+Tailwind runs in `darkMode: 'class'` and the provider stamps `.dark` on `<html>`, so
+every surface needs its `dark:` pair — a component with only light classes is a bug.
+
+**One color per class**, assigned once from the course order in `src/lib/courseColors.js`
+and used by the calendar blocks, the swimlanes, the legend and the session dots alike. A
+class's color never shifts between views or renders. Class strings are written out in
+full rather than composed at runtime, because Tailwind only generates classes it can see
+literally in the source.
+
 Deliberately avoided the common AI-generated-page tells (cream background + terracotta
 accent, tracked-out eyebrow labels, spaced-em-dash chrome, generic identical-rounded-card
 kit). Palette: **stone** (neutral surfaces/text), **emerald** (goals/growth/primary
@@ -148,14 +184,16 @@ arbitrary-value classes, since there's no JIT compiler in the artifact runtime t
 prototyped in. Typography: `font-serif` for headings, `font-sans` (default) for body/UI,
 sentence case throughout, no all-caps labels.
 
-### Known simplifications in the MVP worth revisiting for real data
+### Known simplifications worth revisiting for real data
 
-- The "this week" load strip currently counts fixed blocks and flexible sessions
-  together for the same load indicator — slightly understates how "locked-in" a
-  heavy class day feels versus a heavy self-directed day. A two-tone bar split is a
-  quick fix if the demo narrative needs it.
-- Radial view currently only renders *today*. Extending it to any day is a small
-  addition, not a redesign, but wasn't required for the hackathon demo.
+- Radial view (first look only) still renders *today* only. Extending it to any day is a
+  small addition, not a redesign.
+- The calendar is read-only by design, but it has no "conflict" affordance beyond
+  side-by-side lanes. If re-solves start producing genuine overlaps, that needs a
+  visible marker rather than just narrower blocks.
+- The course catalog in `frontend/src/lib/mock/catalog.js` is a realistic stand-in with
+  real-looking codes and meeting patterns. It is replaced wholesale by `GET /courses`
+  once the Canvas pipeline lands — nothing else has to change.
 
 ## Data model
 
