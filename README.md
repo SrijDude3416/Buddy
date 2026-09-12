@@ -1,8 +1,19 @@
 # Buddy
 
-Buddy translates student feedback into preference API calls, rebuilds a schedule
-with the existing Python CP-SAT optimizer, and renders its result in React.
-The integrated demo lives on `merged` (the repository's lowercase branch name).
+Amazon doesn't ask what you want — it does math on what you've done and hands you
+something personalized. Buddy does that for a student's semester: classes, deadlines,
+and how you actually like to work go in, and a real optimizer (Google OR-Tools'
+CP-SAT solver) places every study session around your fixed class times, reporting
+how close to provably optimal it got instead of just guessing at a schedule.
+
+The AI layer never touches the schedule directly. Chat feedback ("keep Friday nights
+free," "I do better in the evening") is translated by OpenAI into typed preference
+calls from a fixed, validated catalog — never raw event edits — and a deterministic
+Python compiler turns each one into a CP-SAT constraint or objective term. The model
+translates what you want into math; the solver decides when things actually happen.
+That boundary is what makes "AI optimizes the math for you" true rather than a slogan,
+and it's enforced in code, not just policy — see [CLAUDE.md](CLAUDE.md) for the
+non-negotiable principles this project holds itself to.
 
 ## Run
 
@@ -33,9 +44,9 @@ Demo uses `test-data/schedule_test_data.json` and never reads or writes MongoDB.
 
 Configure `MONGODB_URI` and `MONGODB_DB` in `backend/.env.local` for live planner
 data, plus the schedule catalog settings below in `buddy/.env.local`.
-The public planner uses the existing shared Mongo dataset (`demo-carlos` by
- default); set `BUDDY_MONGODB_USER_ID` in the Python service environment to select
-another existing dataset. Google credentials and SESSION_SECRET are not needed.
+The public planner uses the existing shared Mongo dataset (`demo-carlos` by default);
+set `BUDDY_MONGODB_USER_ID` in the Python service environment to select another
+existing dataset. Google credentials and SESSION_SECRET are not needed.
 
 ## MongoDB
 
@@ -148,19 +159,30 @@ React chat → Next.js /api/chat/messages
 ```
 
 The batch endpoint uses an isolated PreferenceStore so an error or cancelled request
-cannot leave a half-applied preference update. Current preferences travel with the
-browser's plan; there is no persistence. Initial data comes from the full original
-`test-data/schedule_test_data.json`, filtered only by selected courses. The starting
-plan is computed by CP-SAT and cached for reset; every chat tool batch runs a new
-solve. Generated lecture reviews are included, and unscheduled blocks are disclosed.
+cannot leave a half-applied preference update. Demo's preferences travel with the
+browser's plan and are never written to Mongo — every demo session starts from the
+exact same seeded set, on purpose (see `backend/optimizer/mongo_state.py`'s
+`demo_default_preferences()`). Get started's preferences persist to MongoDB per
+account. Initial task/course data comes from `test-data/schedule_test_data.json`
+(demo) or the account's own Mongo data (Get started), filtered only by selected
+courses. The starting plan is computed by CP-SAT and cached for reset; every chat
+tool batch runs a new solve. Generated lecture reviews are included, and unscheduled
+blocks are disclosed.
 
-OpenAI can set preferred hours, daily workload limits, protected time blocks, break
-habits, remove a preference, or list preferences. It does not select event times.
+Thirteen tools, not one bare "move this event" — `preference_pipeline.py`'s full
+catalog, spec'd in [PREFERENCE_API.md](PREFERENCE_API.md): preferred work hours,
+daily workload limits, protected time blocks, break habits, task spacing, urgency
+emphasis, minimum session gaps, meal windows (a bounded range CP-SAT places freely,
+not a fixed time), personal commitments (gym, club meetings — lockable to an exact
+time or left as a movable window), adding or removing a real assignment (with an
+optional exact session-by-session breakdown, e.g. "two 2-hour sessions then a
+30-minute review"), removing a preference, and listing what's active. OpenAI never
+selects event times, even when asked to add a task — it supplies the facts (course,
+deadline, how much work), CP-SAT still decides every session's placement.
 Unsupported or ambiguous requests get an explanation or clarification without a
-calendar change. Exact block lengths, quiz-specific priorities, and commitment
-hours are not implemented by the existing preference tools. Soft preferences may
-lose tradeoffs against other objectives; protected blocks are hard constraints on
-flexible work. Lectures stay fixed.
+calendar change. Soft preferences may lose tradeoffs against other objectives;
+protected blocks and locked commitments are hard constraints on flexible work.
+Lectures stay fixed.
 
 ## Checks
 
