@@ -1,9 +1,10 @@
+import { dataAccess } from '@/lib/auth/data-access';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { preferenceEnvelope } from '@/lib/demo-data';
 import { getDefaultPreferences, applyPreferenceCalls, OptimizerError } from '@/lib/fastapi';
 import type { PreferenceCall } from '@/lib/preference-contract';
-import { isScheduleConfigured, listScheduleClasses, toMeetingTime, type Section } from '@/lib/mongo';
+import { isBuddyCatalogConfigured, isScheduleConfigured, listBuddyScheduleClasses, listScheduleClasses, toMeetingTime, type Section } from '@/lib/mongo';
 export const maxDuration = 180;
 export async function GET(request: Request) {
   try {
@@ -48,8 +49,13 @@ type SectionChoice = { lecture?: string; recitation?: string };
  * its own course data exactly as it did before.
  */
 async function courseOverrides(classes: string[], sections: Record<string, SectionChoice>) {
-  if (!isScheduleConfigured()) return [];
-  const catalog = new Map((await listScheduleClasses()).map(c => [c.course_id, c]));
+  if ((await dataAccess()).demo) return [];
+  const catalogClasses = isBuddyCatalogConfigured()
+    ? await listBuddyScheduleClasses()
+    : isScheduleConfigured()
+      ? await listScheduleClasses()
+      : [];
+  const catalog = new Map(catalogClasses.map(c => [c.course_id, c]));
   const overrides = [];
   for (const id of classes) {
     const cls = catalog.get(id);

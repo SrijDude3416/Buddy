@@ -1,3 +1,4 @@
+import { dataAccess } from './auth/data-access';
 import { z } from 'zod';
 import { PlanSchema } from './plan';
 import { SavedPreferencesSchema, type PreferenceCall } from './preference-contract';
@@ -11,10 +12,12 @@ const BatchResult = z.object({
   preference_calls: z.array(z.object({ name: z.string(), arguments: z.record(z.unknown()), endpoint: z.string(), method: z.string(), result: z.unknown() })),
 });
 export async function optimizerApi(path: string, init?: RequestInit) {
+  const access = await dataAccess();
+  if (!access.demo && path.startsWith('/api/optimizer/')) throw new OptimizerError('Use the account calendar to recalculate your schedule.', 409);
   const base = (process.env.FASTAPI_BASE_URL ?? 'http://127.0.0.1:8000').replace(/\/$/, '');
   let response;
   try {
-    response = await fetch(`${base}${path}`, { ...init, cache: 'no-store', signal: init?.signal ? AbortSignal.any([init.signal, AbortSignal.timeout(70000)]) : AbortSignal.timeout(70000), headers: { 'Content-Type': 'application/json', ...init?.headers } });
+    response = await fetch(`${base}${path}`, { ...init, cache: 'no-store', signal: init?.signal ? AbortSignal.any([init.signal, AbortSignal.timeout(70000)]) : AbortSignal.timeout(70000), headers: { 'Content-Type': 'application/json', ...init?.headers, ...access.headers } });
   } catch (error) {
     if (init?.signal?.aborted) throw error;
     throw new OptimizerError('Could not reach the schedule optimizer. Your preferences and calendar are unchanged.');

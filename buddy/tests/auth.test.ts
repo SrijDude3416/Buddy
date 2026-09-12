@@ -137,3 +137,12 @@ test('a session signed with a different secret is refused', async () => {
   assert.equal(await readSessionToken(token), null);
   process.env.SESSION_SECRET = SECRET;
 });
+
+import { isAndrewAccount } from '../lib/auth/google';
+test('only exact Andrew addresses pass, regardless of hosted-domain hints', () => {
+  assert.equal(isAndrewAccount('student@andrew.cmu.edu', 'andrew.cmu.edu'), true);
+  assert.equal(isAndrewAccount('Student@ANDREW.CMU.EDU', null), true);
+  for (const email of ['student@cmu.edu', 'student@gmail.com', 'student@andrew.cmu.edu.evil.com', 'a@b@andrew.cmu.edu']) {
+    assert.equal(isAndrewAccount(email, 'andrew.cmu.edu'), false);
+  }
+});

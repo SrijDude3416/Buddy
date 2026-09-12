@@ -37,6 +37,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from mongo_loader import DEMO_USER_ID, get_db
+from request_identity import mongo_user_id, request_mode
 from preferences_store import PreferenceStore
 
 
@@ -47,6 +48,9 @@ def save_preferences(store: PreferenceStore, user_id: str = DEMO_USER_ID) -> Non
     superseded) -- dumping it wholesale is correct and idempotent, there's
     no partial-update case to get wrong by doing this instead of a
     per-entry diff."""
+    if request_mode.get() == "demo":
+        return
+    user_id = mongo_user_id() or user_id
     db = get_db()
     db.preferences.delete_many({"user_id": user_id})
     entries = store.list_active()
@@ -75,6 +79,9 @@ def load_preferences(user_id: str = DEMO_USER_ID) -> PreferenceStore:
     Mongo behaves identically to one built live via tool calls (same
     scope-replace semantics if a future caller ever seeds it
     incrementally, e.g. one entry at a time instead of all at once)."""
+    if request_mode.get() == "demo":
+        return PreferenceStore()
+    user_id = mongo_user_id() or user_id
     db = get_db()
     store = PreferenceStore()
     for doc in db.preferences.find({"user_id": user_id}):
@@ -97,6 +104,9 @@ def log_optimizer_run(
     apply_and_solve is the only path buddy/ exercises), successes and
     infeasible/failed ones alike -- a failed run is exactly the kind of
     thing worth a durable record of, not just the ones that worked."""
+    if request_mode.get() == "demo":
+        return
+    user_id = mongo_user_id() or user_id
     db = get_db()
     db.optimizer_runs.insert_one(
         {
@@ -127,6 +137,9 @@ def log_optimizer_run(
 
 
 def save_plan_cache(response: dict, user_id: str = DEMO_USER_ID) -> None:
+    if request_mode.get() == "demo":
+        return
+    user_id = mongo_user_id() or user_id
     db = get_db()
     db.plan_cache.replace_one(
         {"user_id": user_id},
@@ -140,6 +153,9 @@ def load_plan_cache(user_id: str = DEMO_USER_ID) -> dict | None:
     None if nothing's cached yet (a brand-new cluster, or --wipe was run).
     Strips Mongo's own bookkeeping fields so the result is exactly the
     response shape a caller can return as-is."""
+    if request_mode.get() == "demo":
+        return
+    user_id = mongo_user_id() or user_id
     db = get_db()
     doc = db.plan_cache.find_one({"user_id": user_id})
     if not doc:

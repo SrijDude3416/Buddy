@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import { handleChat } from '../lib/chat-handler';
 import { plan, call, rebuilt, aiResponse, json } from './fixtures';
 
-const request = (current = plan) => new Request('http://localhost/api/chat/messages', { method: 'POST', body: JSON.stringify({ text: 'Study later', plan: current }) });
+const request = (current = plan) => new Request('http://localhost/api/chat/messages', { method: 'POST', headers: { Cookie: 'buddy_demo=1' }, body: JSON.stringify({ text: 'Study later', plan: current }) });
 async function mocked(run: () => Promise<void>, fetcher: typeof fetch) {
   const key = process.env.OPENAI_API_KEY, original = globalThis.fetch;
   process.env.OPENAI_API_KEY = 'test-placeholder'; globalThis.fetch = fetcher;

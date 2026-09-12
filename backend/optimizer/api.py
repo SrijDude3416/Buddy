@@ -61,6 +61,9 @@ app = FastAPI(
     description="Implements PREFERENCE_API.md against test-data/schedule_test_data.json. No live DB.",
 )
 
+from request_identity import register_identity
+register_identity(app)
+
 # --- fixed "test student" state -------------------------------------------
 # Loaded once at import time. Prefers the real Atlas cluster (mongo_loader.py,
 # seeded from this same test-data.json by seed_mongo.py) and falls back to
@@ -69,7 +72,7 @@ app = FastAPI(
 # point (scheduler.py, preferences.py, preference_pipeline.py) needs to know
 # which source DATA actually came from; a future per-request/per-user Mongo
 # read replaces only this one assignment.
-DATA = data_loader.load_data_preferring_mongo()
+DATA = data_loader.load_data()
 WINDOW_DAYS = 14  # matches run_prototype.py's default and every tuning run in README.md
 STORE = PreferenceStore()
 _LAST_SOLVE: SolveResponse | None = None

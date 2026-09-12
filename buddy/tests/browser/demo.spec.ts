@@ -18,6 +18,7 @@ test('confirm defaults → chat → calendar changes → second chat → undo �
   page.on('pageerror', e => errors.push(e.message));
   const loaded = page.waitForResponse(r => r.url().endsWith('/api/preferences') && r.request().method() === 'GET');
   await page.goto('/');
+  await page.getByRole('button', { name: 'Demo', exact: true }).click();
   expect((await loaded).status()).toBe(200);
   await page.getByRole('button', { name: 'Confirm preferences & view calendar' }).click();
   await expect(page.getByText('Demo week: September')).toBeVisible();
@@ -62,6 +63,7 @@ test('confirm defaults → chat → calendar changes → second chat → undo �
 
 test('custom onboarding retains selected courses and loads a plan', async ({ page }) => {
   await page.goto('/');
+  await page.getByRole('button', { name: 'Demo', exact: true }).click();
   await page.getByRole('button', { name: 'Customize', exact: true }).click();
   await page.getByRole('button', { name: 'Continue', exact: false }).click();
   await page.getByRole('button', { name: 'Evening', exact: true }).click();
@@ -74,6 +76,7 @@ test('custom onboarding retains selected courses and loads a plan', async ({ pag
 
 test('chat failure preserves calendar and restores the draft for retry', async ({ page }) => {
   await page.goto('/');
+  await page.getByRole('button', { name: 'Demo', exact: true }).click();
   await page.getByRole('button', { name: 'Confirm preferences & view calendar' }).click();
   await expect(page.locator('[data-event-id]').first()).toBeAttached();
   const before = await page.locator('[data-event-id]').evaluateAll(nodes => nodes.map(n => n.getAttribute('data-start')));
@@ -89,6 +92,7 @@ test('chat failure preserves calendar and restores the draft for retry', async (
 
 test('waiting remains interactive and Stop keeps the schedule and next draft intact', async ({ page }) => {
   await page.goto('/');
+  await page.getByRole('button', { name: 'Demo', exact: true }).click();
   await page.getByRole('button', { name: 'Confirm preferences & view calendar' }).click();
   await expect(page.locator('[data-event-id]').first()).toBeAttached();
   const before = await page.locator('[data-event-id]').evaluateAll(nodes => nodes.map(n => n.getAttribute('data-start')));

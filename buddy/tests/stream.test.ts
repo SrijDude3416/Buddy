@@ -5,7 +5,7 @@ import { plan, rebuilt, aiResponse, json } from './fixtures';
 import { readChatStream } from '../../frontend/src/lib/chatStream.js';
 
 const request = () => new Request('http://localhost/api/chat/messages', {
-  method: 'POST', headers: { Accept: 'application/x-ndjson' },
+  method: 'POST', headers: { Cookie: 'buddy_demo=1', Accept: 'application/x-ndjson' },
   body: JSON.stringify({ text: 'Study later', plan: plan }),
 });
 const restore = (key: string, value: string | undefined) => { if (value === undefined) delete process.env[key]; else process.env[key] = value; };

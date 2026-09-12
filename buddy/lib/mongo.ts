@@ -157,8 +157,12 @@ function toSections(raw: unknown, kind: Section['kind']): Section[] {
 }
 
 const CLIENT_KEY = '__buddyScheduleMongoClientPromise';
+const PLANNER_CLIENT_KEY = '__buddyPlannerMongoClientPromise';
+const BUDDY_CATALOG_CLIENT_KEY = '__buddyCatalogMongoClientPromise';
 const globalForMongo = globalThis as typeof globalThis & {
   [CLIENT_KEY]?: Promise<MongoClient>;
+  [PLANNER_CLIENT_KEY]?: Promise<MongoClient>;
+  [BUDDY_CATALOG_CLIENT_KEY]?: Promise<MongoClient>;
 };
 
 export function isScheduleConfigured(): boolean {
@@ -193,6 +197,50 @@ async function scheduleCollection(): Promise<Collection> {
   if (!dbName) throw new Error('SCHEDULE_MONGODB_DB is not set');
   const client = await getClient();
   return client.db(dbName).collection(process.env.SCHEDULE_MONGODB_COLLECTION || 'schedule');
+}
+
+/** The same Mongo database used by the optimizer's live planner data. */
+export function isPlannerConfigured(): boolean {
+  return Boolean(process.env.MONGODB_URI && process.env.MONGODB_DB);
+}
+
+async function plannerCollection(): Promise<Collection> {
+  const uri = process.env.MONGODB_URI;
+  const dbName = process.env.MONGODB_DB;
+  if (!uri || !dbName) throw new Error('MONGODB_URI/MONGODB_DB is not set');
+  if (!globalForMongo[PLANNER_CLIENT_KEY]) {
+    globalForMongo[PLANNER_CLIENT_KEY] = new MongoClient(uri, {
+      maxPoolSize: 10,
+      minPoolSize: 0,
+      serverSelectionTimeoutMS: 8000,
+    }).connect().catch((err) => {
+      globalForMongo[PLANNER_CLIENT_KEY] = undefined;
+      throw err;
+    });
+  }
+  return (await globalForMongo[PLANNER_CLIENT_KEY]).db(dbName).collection('courses');
+}
+
+/** The public CMU catalog lives in the `buddy` database on the same cluster. */
+export function isBuddyCatalogConfigured(): boolean {
+  return Boolean(process.env.MONGODB_URI);
+}
+
+async function buddyScheduleCollection(): Promise<Collection> {
+  const uri = process.env.MONGODB_URI;
+  if (!uri) throw new Error('MONGODB_URI is not set');
+  if (!globalForMongo[BUDDY_CATALOG_CLIENT_KEY]) {
+    globalForMongo[BUDDY_CATALOG_CLIENT_KEY] = new MongoClient(uri, {
+      maxPoolSize: 10,
+      minPoolSize: 0,
+      serverSelectionTimeoutMS: 8000,
+    }).connect().catch((err) => {
+      globalForMongo[BUDDY_CATALOG_CLIENT_KEY] = undefined;
+      throw err;
+    });
+  }
+  const database = process.env.BUDDY_CATALOG_DB || 'buddy';
+  return (await globalForMongo[BUDDY_CATALOG_CLIENT_KEY]).db(database).collection('schedule');
 }
 
 /**
@@ -273,4 +321,38 @@ export async function listScheduleClasses(): Promise<ScheduleClass[]> {
     .find({}, { projection: { _id: 0, course_id: 1, course_title: 1, department: 1, lecture: 1, recitation: 1 } })
     .toArray();
   return normalizeScheduleDocs(docs);
+}
+
+/** Every class in Buddy's CMU schedule catalog. */
+export async function listBuddyScheduleClasses(): Promise<ScheduleClass[]> {
+  const docs = await (await buddyScheduleCollection())
+    .find({}, { projection: { _id: 0, course_id: 1, course_title: 1, department: 1, lecture: 1, recitation: 1 } })
+    .toArray();
+  return normalizeScheduleDocs(docs);
+}
+
+/**
+ * The live planner's courses use the optimizer schema (`name` and
+ * `meeting_times`) rather than the optional registrar catalog schema. Keep the
+ * picker on live MongoDB when the registrar catalog is not configured.
+ */
+export async function listPlannerClasses() {
+  const docs = await (await plannerCollection())
+    .find({ seed_source: 'carlos_test_data' }, { projection: { _id: 1, name: 1, meeting_times: 1 } })
+    .toArray();
+  return docs
+    .filter((doc) => typeof doc.name === 'string' && doc.name.trim())
+    .map((doc) => ({
+      _id: String(doc._id),
+      code: String(doc._id),
+      name: doc.name.trim(),
+      section: null,
+      term: null,
+      department: null,
+      units: null,
+      meeting_times: Array.isArray(doc.meeting_times) ? doc.meeting_times : [],
+      lecture: [],
+      recitation: [],
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name));
 }

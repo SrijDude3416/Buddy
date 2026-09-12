@@ -22,27 +22,15 @@ running optimizer, set `FASTAPI_BASE_URL` in the shell before running the comman
 The Next.js server also reads that URL from `buddy/.env.local`.
 
 For a production local demo: `npm run build`, then `npm start -- --port 3100`.
-Canvas is still not required, and sign-in is optional for the demo (see
-"Sign in with CMU" below). MongoDB now **is** used when reachable,
-for two different things:
-- Courses/tasks: the Python optimizer reads these from the real Atlas cluster
-  (credentials in `backend/.env.local` — see "MongoDB" below) instead of the
-  static `test-data/schedule_test_data.json`.
-- Preferences and run history: every chat-triggered solve saves the resulting
-  preference set (`preferences` collection) and logs a durable record of the
-  solve itself (`optimizer_runs` — CLAUDE.md's "why" log: objective, best
-  bound, gap, solve time, what was asked for). A fresh server start or a
-  brand-new browser tab restores your last-saved preferences instead of
-  resetting to the generic 8am-5pm default.
+The opening screen offers **Get started** and **Demo**, with no authentication.
+Get started uses MongoDB and reports an error if live data cannot be loaded.
+Demo uses `test-data/schedule_test_data.json` and never reads or writes MongoDB.
 
-If Mongo isn't configured, isn't seeded, or the client's IP isn't in Atlas's
-Network Access list, both fall back automatically — courses/tasks to the
-static file, preferences to that same generic default — loudly, not silently
-(check the Python process's startup log for which one it picked each time).
-A Mongo write failing never fails the chat request it's attached to; it only
-means that particular change doesn't survive a restart. An OpenAI key and the
-Python service are required for chat; there is one interpreter and one
-scheduling engine, with no simulated fallback.
+Configure `MONGODB_URI` and `MONGODB_DB` in `backend/.env.local` for live planner
+data, plus the schedule catalog settings below in `buddy/.env.local`.
+The public planner uses the existing shared Mongo dataset (`demo-carlos` by
+ default); set `BUDDY_MONGODB_USER_ID` in the Python service environment to select
+another existing dataset. Google credentials and SESSION_SECRET are not needed.
 
 ## MongoDB
 
@@ -67,54 +55,11 @@ already uses. One-time setup:
 
 No seeding step needed for preferences/run history — those write themselves the
 first time you use the demo (`backend/optimizer/mongo_state.py`, wired into
-`preference_pipeline.py`). There is one implicit demo user (`"demo-carlos"`,
-same as the seeded courses/tasks): sign-in gates who reaches the app, but the
-optimizer's own state is not yet keyed per account — a real per-account version
-keys these by a real `user_id` instead.
+`preference_pipeline.py`). Get started uses the shared MongoDB dataset; Demo stays entirely file-backed.
 
 See `backend/optimizer/mongo_loader.py` / `seed_mongo.py` (courses/tasks) and
 `mongo_state.py` (preferences/optimizer_runs) for the field mapping and exactly
 what is (and isn't) read from/written to Mongo.
-
-## Sign in with CMU (Google OAuth)
-
-CMU Andrew accounts are Google Workspace accounts, so Google OAuth restricted to
-the `andrew.cmu.edu` hosted domain authenticates against CMU's own directory. No
-CMU service-provider registration, and Buddy never sees a password.
-
-Sign-in has three modes, decided by `buddy/lib/auth/env.ts`:
-
-| Google credentials | `NODE_ENV` | Mode | Behaviour |
-|---|---|---|---|
-| set | any | `oauth` | Real gate. Only allowed domains get in. |
-| missing | development | `demo` | Zero-config walkthrough: one fixed demo student, no login. |
-| missing | production | `unconfigured` | **Fails closed.** Sign-in screen explains what is missing. |
-
-`BUDDY_ALLOW_DEMO=1` forces `demo` even with credentials set — used by the
-Playwright suite and for demoing offline. The production row is the important
-one: a deploy that loses its env vars must not silently sign everyone in.
-
-To turn on real sign-in, fill these into `buddy/.env.local` (all documented in
-`buddy/.env.example`):
-
-```bash
-GOOGLE_CLIENT_ID=...apps.googleusercontent.com
-GOOGLE_CLIENT_SECRET=...
-SESSION_SECRET=$(openssl rand -base64 48)
-OAUTH_REDIRECT_URI=http://localhost:3000/api/auth/google/callback
-ALLOWED_EMAIL_DOMAINS=andrew.cmu.edu,cmu.edu
-```
-
-In Google Cloud Console → Credentials → OAuth client ID (Web), the **Authorized
-redirect URI must match `OAUTH_REDIRECT_URI` character for character**, port
-included. That mismatch is the single most common failure — if you run the demo
-on `--port 3100`, register `http://localhost:3100/api/auth/google/callback` too.
-
-`MONGODB_URI` is optional. With it, sign-in upserts SCHEMA.md's `users` document
-(keyed on the Google `sub`, never the email) and the session route reads through
-to it, so deleting an account immediately invalidates its cookie. Without it the
-signed cookie is the whole user record — fine for a demo, and the tradeoffs are
-spelled out at the top of `buddy/lib/auth/users.ts`.
 
 ### The class catalog cluster
 

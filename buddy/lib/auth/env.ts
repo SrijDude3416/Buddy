@@ -49,10 +49,7 @@ export const authEnv = {
     return read('APP_ORIGIN');
   },
   get allowedDomains() {
-    return (read('ALLOWED_EMAIL_DOMAINS') || 'andrew.cmu.edu,cmu.edu')
-      .split(',')
-      .map((d) => d.trim().toLowerCase())
-      .filter(Boolean);
+    return ['andrew.cmu.edu'];
   },
   /** Persisting users is optional; see lib/auth/users.ts. */
   get mongoUri() {

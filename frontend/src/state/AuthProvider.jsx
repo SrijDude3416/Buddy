@@ -1,19 +1,7 @@
-// ---------------------------------------------------------------------------
-// Auth state.
-//
-// One question on load: GET /auth/session. Until that answers, the app renders
-// nothing decision-shaped — no sign-in screen flash for an already-signed-in
-// user, and no half-loaded hub for a signed-out one.
-//
-// Sign-in is deliberately a full-page navigation rather than a fetch: the OAuth
-// handshake has to happen in the address bar so Google can render its own
-// consent UI and set its own cookies. A fetch cannot do that.
-// ---------------------------------------------------------------------------
-
+// Restores the selected live/demo experience; no authentication is required.
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { authApi } from '../lib/api/index.js';
 import { isAborted } from '../lib/errors.js';
-import { isMock } from '../lib/config.js';
 
 const AuthContext = createContext(null);
 
@@ -62,14 +50,14 @@ export function AuthProvider({ children }) {
     check();
   }, [check]);
 
-  const signIn = useCallback(() => {
-    if (isMock()) {
-      // No OAuth in mock mode; the demo user is always present.
-      check();
-      return;
-    }
-    window.location.href = authApi.signInUrl(window.location.pathname);
-  }, [check]);
+  const enter = useCallback((nextMode) => {
+    document.cookie = `buddy_mode=${nextMode}; Path=/; SameSite=Lax`;
+    document.cookie = 'buddy_demo=; Path=/; Max-Age=0; SameSite=Lax';
+    setUser({ id: nextMode, name: nextMode === 'demo' ? 'Demo student' : 'Your planner', email: '' });
+    setMode(nextMode);
+    setStatus('signedIn');
+  }, []);
+  const signIn = useCallback(() => enter('live'), [enter]);
 
   const signOut = useCallback(async () => {
     try {
@@ -78,9 +66,12 @@ export function AuthProvider({ children }) {
       // Even if the request fails, drop local state — staying "signed in" after
       // the user asked to leave is the worse failure.
     }
+    document.cookie = 'buddy_demo=; Path=/; Max-Age=0; SameSite=Lax';
+    document.cookie = 'buddy_mode=; Path=/; Max-Age=0; SameSite=Lax';
     setUser(null);
     setStatus('signedOut');
-  }, []);
+    await check();
+  }, [check]);
 
   const value = useMemo(
     () => ({
@@ -92,11 +83,12 @@ export function AuthProvider({ children }) {
       clearAuthError: () => setAuthError(null),
       isLoading: status === 'loading',
       isSignedIn: status === 'signedIn',
+      enterDemo: () => enter('demo'),
       signIn,
       signOut,
       refresh: check,
     }),
-    [status, user, mode, error, authError, signIn, signOut, check],
+    [status, user, mode, error, authError, signIn, signOut, check, enter],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

@@ -8,5 +8,8 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 export async function POST() {
-  return clearSessionCookie(NextResponse.json({ ok: true }));
+  const response = clearSessionCookie(NextResponse.json({ ok: true }));
+  response.cookies.set('buddy_demo', '', { path: '/', maxAge: 0 });
+  response.cookies.set('buddy_mode', '', { path: '/', maxAge: 0 });
+  return response;
 }

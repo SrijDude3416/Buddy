@@ -145,7 +145,7 @@ export async function completeAuth({
   const emailDomain = email.toLowerCase().split('@')[1] ?? '';
   const hd = payload.hd ? String(payload.hd).toLowerCase() : null;
   const allowed = authEnv.allowedDomains;
-  const permitted = (hd !== null && allowed.includes(hd)) || allowed.includes(emailDomain);
+  const permitted = isAndrewAccount(email, hd);
 
   if (!permitted) {
     throw new DomainNotAllowedError(
@@ -160,4 +160,8 @@ export async function completeAuth({
     picture: typeof payload.picture === 'string' ? payload.picture : null,
     hd,
   };
+}
+
+export function isAndrewAccount(email: string, hostedDomain: string | null): boolean {
+  return /^[^@\s]+@andrew\.cmu\.edu$/i.test(email) && (hostedDomain === null || hostedDomain.toLowerCase() === 'andrew.cmu.edu');
 }

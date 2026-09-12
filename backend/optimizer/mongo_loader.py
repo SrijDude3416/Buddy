@@ -105,7 +105,13 @@ def load_data(user_id: str = DEMO_USER_ID) -> data_loader.ScheduleData:
     the file-based loader already treats test-data.json's `courses` array)."""
     db = get_db()
 
-    course_docs = list(db.courses.find({"seed_source": SEED_SOURCE}))
+    live = user_id != DEMO_USER_ID
+    task_query = {"user_id": user_id} if live else {"user_id": user_id, "seed_source": SEED_SOURCE}
+    task_docs = list(db.tasks.find(task_query))
+    course_ids = [t["course_id"] for t in task_docs]
+    if live:
+        course_ids.extend(e["course_id"] for e in db.enrollments.find({"user_id": user_id}))
+    course_docs = list(db.courses.find({"_id": {"$in": course_ids}} if live else {"seed_source": SEED_SOURCE}))
     courses = {
         str(c["_id"]): data_loader.Course(
             id=str(c["_id"]),
@@ -115,7 +121,7 @@ def load_data(user_id: str = DEMO_USER_ID) -> data_loader.ScheduleData:
         for c in course_docs
     }
 
-    task_docs = list(db.tasks.find({"user_id": user_id, "seed_source": SEED_SOURCE}))
+
     tasks = [
         data_loader.Task(
             id=str(t["_id"]),
@@ -131,7 +137,7 @@ def load_data(user_id: str = DEMO_USER_ID) -> data_loader.ScheduleData:
         for t in task_docs
     ]
 
-    if not courses or not tasks:
+    if not live and (not courses or not tasks):
         raise RuntimeError(
             f"Mongo has {len(courses)} seeded courses / {len(tasks)} seeded tasks for "
             f"user_id={user_id!r}, seed_source={SEED_SOURCE!r} -- run seed_mongo.py first."

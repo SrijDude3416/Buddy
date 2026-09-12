@@ -16,6 +16,8 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 import data_loader
 import mongo_state
+import mongo_loader
+from request_identity import current_user, mongo_user_id
 import scheduler
 from preferences_store import PreferenceStore, WEIGHT_MAP
 from plan_payload import to_plan_payload
@@ -160,6 +162,10 @@ def register_pipeline(app):
 
     @app.post("/preferences/operations")
     def apply_and_solve(body: PreferenceBatch):
+        try:
+            source = mongo_loader.load_data(mongo_user_id()) if current_user.get() else api.DATA
+        except Exception as exc:
+            raise HTTPException(503, "Could not load your MongoDB courses and tasks.") from exc
         store = PreferenceStore()
         for call in body.preferences:
             if call.name in ("remove_preference", "list_current_preferences"):
@@ -187,16 +193,16 @@ def register_pipeline(app):
             )
             for c in (body.courses or [])
         }
-        available = {**api.DATA.courses, **overrides}
+        available = {**source.courses, **overrides}
         selected = set(body.course_ids) if body.course_ids is not None else set(available)
         if not selected.issubset(available):
             raise HTTPException(422, "Unknown course ID")
         data = data_loader.ScheduleData(
-            generated_at=api.DATA.generated_at,
+            generated_at=source.generated_at,
             courses={k: c for k, c in available.items() if k in selected},
             # Only startup-loaded courses have tasks. An overridden course with no
             # tasks contributes its class blocks and nothing else -- see CourseOverride.
-            tasks=[t for t in api.DATA.tasks if t.course_id in selected],
+            tasks=[t for t in source.tasks if t.course_id in selected],
         )
         # Past-preserving lock: whatever the previous cached plan showed for
         # flexible sessions already behind "now" gets fed into THIS solve as
@@ -333,6 +339,9 @@ def register_pipeline(app):
 
     @app.get("/preferences/defaults")
     def defaults():
+        if current_user.get():
+            # Never reuse the process-wide demo cache for a signed-in account.
+            return initial_plan.__wrapped__()
         # The actual "don't re-run the optimizer every page load" behavior:
         # a page load is GET /preferences/defaults, and if apply_and_solve
         # has ever completed for this user, mongo_state.plan_cache already

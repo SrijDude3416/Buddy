@@ -16,6 +16,7 @@ import { Spinner } from './components/ui/Spinner.jsx';
 import { ErrorNotice } from './components/ui/ErrorNotice.jsx';
 
 function Demo({ initial, onReset }) {
+  const { mode } = useAuth();
   const { payload, setFromPayload } = usePlan();
   const { toggle, lastChange, undo, sending } = useChat();
   const [phase, setPhase] = useState('welcome');
@@ -66,14 +67,14 @@ function Demo({ initial, onReset }) {
         <div className="flex items-center gap-2"><ThemeToggle /><UserMenu />{phase === 'calendar' && <button type="button" onClick={toggle} className="flex gap-2 items-center rounded-lg bg-emerald-700 text-white px-3 py-2" aria-label="Open chat with Buddy"><MessageCircle className="w-4 h-4" />Ask Buddy</button>}</div>
       </header>
       {phase === 'welcome' && <section className="space-y-5">
-        <h2 className="font-serif text-2xl">Start with your demo week</h2>
+        <h2 className="font-serif text-2xl">{mode === 'demo' ? 'Start with your demo week' : 'Start with your week'}</h2>
         <p className="text-sm text-stone-600 dark:text-stone-300">Your classes and study blocks are loaded from the preferences API. Confirm these settings or customize them first.</p>
         <div className="bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 rounded-xl p-4 space-y-2 text-sm">
           <p><strong>{initial.plan.courses.length} CMU classes</strong> · September 12–25, 2026</p>
           {initial.plan.courses.map(c => <p key={c._id}>{c.name}</p>)}
           <hr className="border-stone-200 dark:border-stone-800" />
           <p>Default work window: 8 AM–5 PM · 15-minute breaks</p>
-          <p>Calendar source: existing CP-SAT solver and static test data</p>
+          <p>Calendar source: {mode === 'demo' ? 'Demo data' : 'MongoDB'}</p>
         </div>
         <div className="flex gap-3"><button disabled={busy} onClick={() => confirm(answers)} className="rounded-lg bg-emerald-700 text-white px-4 py-2">{busy ? 'Loading your calendar…' : 'Confirm preferences & view calendar'}</button><button disabled={busy} onClick={() => setPhase('onboarding')} className="text-sm underline">Customize</button></div>
         {error && <ErrorNotice error={error} onRetry={() => confirm(answers)} />}
@@ -88,10 +89,10 @@ function Demo({ initial, onReset }) {
         {task ? <TaskDetail taskId={task} onBack={() => setTask(null)} /> : <PlanPage onOpenTask={setTask} />}
         <div className="mt-8 pt-4 border-t border-stone-200 dark:border-stone-800 text-xs text-stone-400 dark:text-stone-600 space-y-2">
           <p>
-            <button disabled={sending} onClick={onReset} className="underline">Reset demo</button>
+            <button disabled={sending} onClick={onReset} className="underline">{mode === 'demo' ? 'Reset demo' : 'Reload calendar'}</button>
             {' · '}<button disabled={sending || recalculating} onClick={recalculate} className="underline">{recalculating ? 'Recalculating…' : 'Recalculate'}</button>
             {lastChange && <> · <button disabled={sending} onClick={undo} className="underline">Undo last schedule change</button></>}
-            {' · '}Demo week: September 12–25, 2026 · {initial.mode === 'openai' ? 'OpenAI + CP-SAT enabled' : 'OpenAI key not configured'} · changes stay in this tab.
+            {' · '}Demo week: September 12–25, 2026 · {initial.mode === 'openai' ? 'OpenAI + CP-SAT enabled' : 'OpenAI key not configured'} · {mode === 'demo' ? 'Demo session' : 'Preferences saved to MongoDB'}.
           </p>
           {notice && <details><summary className="cursor-pointer">How your preferences were applied</summary><p className="mt-1">{notice}</p></details>}
           {payload.unplaced?.length > 0 && <details><summary className="cursor-pointer">{payload.unplaced.length} unscheduled or outside-window blocks in the source plan</summary><ul className="mt-1">{payload.unplaced.map(b => <li key={b.id}>{b.title}</li>)}</ul></details>}
@@ -116,7 +117,7 @@ function DemoShell() {
     preferencesApi.list({ signal: controller.signal }).then(setInitial).catch(e => { if (!controller.signal.aborted) setError(e); });
     return () => controller.abort();
   }, [version]);
-  if (error) return <div className="max-w-xl mx-auto p-8"><ErrorNotice error={error} onRetry={() => setVersion(v => v + 1)} /></div>;
+  if (error) return <div className="max-w-xl mx-auto p-8"><UserMenu /><ErrorNotice error={error} onRetry={() => setVersion(v => v + 1)} /></div>;
   if (!initial) return <p className="p-8 text-stone-500">Loading preferences and building the calendar in the optimizer…</p>;
   return <PlanProvider key={version} initialPayload={initial.plan}><ChatProvider><Demo initial={initial} onReset={() => setVersion(v => v + 1)} /></ChatProvider></PlanProvider>;
 }

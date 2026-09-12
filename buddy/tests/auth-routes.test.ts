@@ -53,19 +53,19 @@ function setCookies(response: Response): Map<string, string> {
   return out;
 }
 
-test('demo mode serves the fixed demo student', async () => {
+test('demo mode shows the sign-in screen until Demo is chosen', async () => {
   setEnv({ ...OAUTH, BUDDY_ALLOW_DEMO: '1' });
   const response = await sessionRoute(new Request('https://buddy.test/api/auth/session'));
   const body = await response.json();
   assert.equal(response.status, 200);
-  assert.equal(body.auth_mode, 'demo');
-  assert.equal(body.user.email, 'demo@andrew.cmu.edu');
+  assert.equal(body.auth_mode, 'live');
+  assert.equal(body.user, null);
 });
 
 test('production with no credentials serves no user at all', async () => {
   setEnv({ ...OAUTH, ...NO_CREDS, NODE_ENV: 'production' });
   const body = await (await sessionRoute(new Request('https://buddy.test/api/auth/session'))).json();
-  assert.equal(body.auth_mode, 'unconfigured');
+  assert.equal(body.auth_mode, 'live');
   // The bug this guards: falling back to DEMO_USER here would make a deploy that
   // lost its env vars look healthy while being open to anyone.
   assert.equal(body.user, null);
@@ -76,7 +76,7 @@ test('oauth mode with no cookie is signed out, not an error', async () => {
   const response = await sessionRoute(new Request('https://buddy.test/api/auth/session'));
   const body = await response.json();
   assert.equal(response.status, 200);
-  assert.equal(body.auth_mode, 'oauth');
+  assert.equal(body.auth_mode, 'live');
   assert.equal(body.user, null);
 });
 
@@ -161,4 +161,19 @@ test('logout expires the session cookie', async () => {
   assert.ok(raw, 'session cookie is cleared');
   assert.match(raw, /Max-Age=0/i);
   assert.match(raw, /HttpOnly/i);
+});
+
+test('Demo is explicitly selectable even without OAuth credentials', async () => {
+  setEnv({ ...NO_CREDS, NODE_ENV: 'production' });
+  const response = await sessionRoute(new Request('https://buddy.test/api/auth/session', { headers: { Cookie: 'buddy_demo=1' } }));
+  const body = await response.json();
+  assert.equal(body.auth_mode, 'demo');
+  assert.equal(body.user.id, 'demo');
+});
+
+test('Get started restores live mode with no Google credentials', async () => {
+  setEnv({ ...NO_CREDS, NODE_ENV: 'production' });
+  const body = await (await sessionRoute(new Request('http://buddy.test/api/auth/session', { headers: { Cookie: 'buddy_mode=live' } }))).json();
+  assert.equal(body.auth_mode, 'live');
+  assert.equal(body.user.id, 'live');
 });

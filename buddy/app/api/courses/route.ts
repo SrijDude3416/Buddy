@@ -1,3 +1,4 @@
+import { dataAccess } from '@/lib/auth/data-access';
 // GET /api/courses — the class catalog the onboarding "Customize" picker lists.
 //
 // Reads the `schedule` collection from Atlas (buddy/lib/mongo.ts). When that isn't
@@ -8,24 +9,32 @@
 
 import { NextResponse } from 'next/server';
 import { fallbackCatalog } from '@/lib/demo-data';
-import { isScheduleConfigured, listScheduleClasses, toCatalogEntry } from '@/lib/mongo';
+import { isBuddyCatalogConfigured, isScheduleConfigured, listBuddyScheduleClasses, listScheduleClasses, toCatalogEntry } from '@/lib/mongo';
 
 export const runtime = 'nodejs'; // the mongodb driver is Node-only
 export const dynamic = 'force-dynamic'; // the catalog is live data, never build-time
 
 export async function GET() {
-  if (isScheduleConfigured()) {
+  let access;
+  try { access = await dataAccess(); } catch { return NextResponse.json({ message: 'Choose Get started or Demo first.' }, { status: 401 }); }
+  if (access.demo) return NextResponse.json({ courses: fallbackCatalog, source: 'demo' });
+  if (isBuddyCatalogConfigured()) {
+    try {
+      const classes = await listBuddyScheduleClasses();
+      return NextResponse.json({ courses: classes.map(toCatalogEntry), source: 'buddy-mongodb' });
+    } catch (error) {
+      console.error(
+        `[courses] Buddy class catalog unavailable (${error instanceof Error ? error.message : error})`,
+      );
+    }
+  } else if (isScheduleConfigured()) {
     try {
       const classes = await listScheduleClasses();
       return NextResponse.json({ courses: classes.map(toCatalogEntry), source: 'mongodb' });
     } catch (error) {
-      console.error(
-        `[courses] Atlas class catalog unavailable (${error instanceof Error ? error.message : error}); ` +
-          'serving the built-in list.',
-      );
+      console.error(`[courses] Atlas class catalog unavailable (${error instanceof Error ? error.message : error})`);
     }
-  } else {
-    console.warn('[courses] SCHEDULE_MONGODB_URI/SCHEDULE_MONGODB_DB not set; serving the built-in list.');
   }
+  if (!access.demo) return NextResponse.json({ message: 'MongoDB course catalog is unavailable.' }, { status: 503 });
   return NextResponse.json({ courses: fallbackCatalog, source: 'fallback' });
 }

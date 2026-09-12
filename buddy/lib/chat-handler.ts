@@ -1,3 +1,4 @@
+import { requestContext, dataAccess } from './auth/data-access';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { PlanSchema } from './plan';
@@ -56,6 +57,12 @@ function errorPayload(error: unknown) {
 }
 
 export async function handleChat(request: Request) {
+  return requestContext.run(request, async () => {
+    try { await dataAccess(); } catch { return Response.json({ message: 'Sign in or choose Demo.' }, { status: 401 }); }
+    return handleAuthorizedChat(request);
+  });
+}
+async function handleAuthorizedChat(request: Request) {
   let body: ChatBody;
   try {
     body = RequestSchema.parse(await request.json());
