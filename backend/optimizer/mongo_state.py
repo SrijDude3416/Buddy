@@ -159,12 +159,36 @@ def merge_preserving_past(old_sessions: list[dict], new_sessions: list[dict], no
     datetimes plan_payload.py already returns (tzinfo stripped before
     serializing) -- plain datetime comparison, not a tz-aware one.
 
-    Known simplification: this partitions by time only, not by identity --
-    if `old_sessions` came from a different course/preference selection than
-    `new_sessions`, a past session from a course no longer selected still
-    carries over. Fine for a single-student demo with no course-removal flow
-    exercised yet; a real multi-selection product would want to intersect on
-    course_id too."""
-    past = [s for s in old_sessions if datetime.fromisoformat(s["start"]) < now]
-    future = [s for s in new_sessions if datetime.fromisoformat(s["start"]) >= now]
+    `_id` is stable across solves for the same logical session -- decompose.py
+    assigns it deterministically from `{task.id}__s{n}` (a pure function of
+    the task, not of any particular solve's placement) -- but CP-SAT is free
+    to place that same id at a different time on every solve. That means the
+    SAME `_id` can legitimately be "past" in `old_sessions` (frozen at
+    whatever time it was last shown) and independently "future" in
+    `new_sessions` (the fresh solve's own, unrelated placement for it) --
+    without deduplicating, both copies survive the partition below and ship
+    to React as two elements with the same `key`, exactly the duplicate-key
+    warning that surfaced this. The old, already-shown time always wins for
+    an id that's past; the new solve's placement for that id is simply
+    dropped rather than shown a second time in the future.
+
+    Known simplification: past/future is still decided by time only, not
+    matched to course/preference selection -- if `old_sessions` came from a
+    different course selection than `new_sessions`, a past session from a
+    course no longer selected still carries over. Fine for a single-student
+    demo with no course-removal flow exercised yet; a real multi-selection
+    product would want to intersect on course_id too."""
+    # Also de-dupes WITHIN old_sessions by _id (first occurrence wins) --
+    # defensive against a plan_cache document saved before this function
+    # de-duplicated past/future itself; a stale duplicate already in Mongo
+    # should self-heal on the next solve, not get carried forward forever.
+    past, seen = [], set()
+    for s in old_sessions:
+        if datetime.fromisoformat(s["start"]) < now and s["_id"] not in seen:
+            past.append(s)
+            seen.add(s["_id"])
+    future = [
+        s for s in new_sessions
+        if datetime.fromisoformat(s["start"]) >= now and s["_id"] not in seen
+    ]
     return past + future
