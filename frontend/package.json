@@ -1,0 +1,28 @@
+{
+  "name": "buddy-frontend",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "lint": "eslint src --ext .js,.jsx",
+    "smoke": "node scripts/run-smoke.mjs",
+    "smoke:render": "node scripts/run-smoke.mjs scripts/render-smoke.jsx",
+    "smoke:all": "npm run smoke && npm run smoke:render"
+  },
+  "dependencies": {
+    "lucide-react": "^1.45.0",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^6.1.1",
+    "autoprefixer": "^10.4.21",
+    "esbuild": "^0.28.2",
+    "postcss": "^8.5.6",
+    "tailwindcss": "^3.4.19",
+    "vite": "^8.3.0"
+  }
+}

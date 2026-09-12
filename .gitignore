@@ -1,0 +1,11 @@
+node_modules
+dist
+.env
+.env.local
+
+# Next.js build output and Vercel local state
+.next
+.vercel
+
+# graphify generated artifacts
+graphify-out
