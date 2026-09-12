@@ -248,6 +248,31 @@ implementation (none of it is wired to a real backend yet):
         click target, flexible sessions in the light tint, opening the task. Only blocks
         with no class at all (gym, meals) are neutral. The key on the right doubles as a
         per-class progress and next-deadline panel.
+        - **The "now" line was silently dead for the entire life of this feature until
+          now** (`CalendarView.jsx`'s `DayColumn`): `isToday` was computed as
+          `!plan.windowStart && day.offset === 0` — true only against the mock-data
+          fallback, since real backend data always sets `plan.windowStart`, making
+          `isToday` (and therefore the line, and its own now-removed per-column
+          `setInterval`) unconditionally false the moment a real plan loaded. Fixed to
+          a real calendar-date comparison (`startOfDay(day.date)` against a live clock)
+          — correct regardless of which anchor produced `day.date`. Also consolidated:
+          one shared clock (`useNow()`, lifted to `PlanPage`, passed down as `now`) now
+          drives the line, `Block`'s auto-cross-out (below), and `ClassLegend`'s bars,
+          instead of each day column keeping its own separate `setInterval` (up to
+          seven running at once in week view, all computing the same minute).
+        - **The class key's progress bar is real elapsed clock time this week, not a
+          completion count.** Used to be `(completed sessions) / (total sessions)`,
+          computed once in `adapters.js` (a static, read-once function with no live
+          clock to check against). Now computed directly in `ClassLegend.jsx`, which
+          has one: for every block carrying that class's color in the currently-viewed
+          week (fixed lecture time + flexible sessions, matching what the panel's own
+          `min` stat always summed) — `elapsed = Σ duration where hasEnded(end, now)`,
+          `total = Σ duration`, bar width = `elapsed / total`. A class can read well
+          through its week without a single session manually checked off; the bar
+          tracks the clock, the same `completed`-vs-`isPast` distinction TaskDetail and
+          CalendarView's own blocks already make, just aggregated to the class level
+          instead of per session. `adapters.js`'s old `goals[].progress` field is gone
+          — it has no reader left now that the one that mattered computes its own.
      2. **Coming up** — deadlines in relative time ("Midterm in 12 days"), never absolute
         dates. Each card is a button that opens the task it names; the label, the
         countdown and the click target are all read off the same next-due task, so a

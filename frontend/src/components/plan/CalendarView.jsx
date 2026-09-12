@@ -8,12 +8,11 @@
 // lanes rather than hiding one behind the other.
 // ---------------------------------------------------------------------------
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { Lock } from 'lucide-react';
 import { assignLanes, itemsForDay, visibleHourRange } from '../../lib/adapters.js';
 import { colorFor } from '../../lib/courseColors.js';
-import { hasEnded } from '../../lib/time.js';
-import { useNow } from '../../hooks/useNow.js';
+import { hasEnded, startOfDay } from '../../lib/time.js';
 
 const PX_PER_HOUR = 56;
 const GUTTER = 52;
@@ -24,9 +23,8 @@ function hourLabel(hour) {
   return `${h} ${ampm}`;
 }
 
-function nowMinutes() {
-  const d = new Date();
-  return d.getHours() * 60 + d.getMinutes();
+function minutesIntoDay(date) {
+  return date.getHours() * 60 + date.getMinutes();
 }
 
 function Block({ entry, laneCount, startHour, colorMap, onOpenTask, now }) {
@@ -105,15 +103,11 @@ function DayColumn({ plan, offset, startHour, endHour, colorMap, onOpenTask, isT
   const items = itemsForDay(plan, offset);
   const { placed, laneCount } = useMemo(() => assignLanes(items), [items]);
   const hours = endHour - startHour;
-  const [now, setNow] = useState(nowMinutes);
-
-  // Keep the "now" line honest without re-rendering constantly.
-  useEffect(() => {
-    if (!isToday) return undefined;
-    const id = setInterval(() => setNow(nowMinutes()), 60000);
-    return () => clearInterval(id);
-  }, [isToday]);
-
+  // Derived from the one shared clock CalendarView already ticks for every
+  // column's isPast check (Block, below) -- used to have its own separate
+  // useState/setInterval here, one per rendered day column (up to 7 running
+  // at once in week view), all computing the same real-world minute.
+  const now = minutesIntoDay(nowDate);
   const showNow = isToday && now >= startHour * 60 && now <= endHour * 60;
 
   return (
@@ -156,14 +150,10 @@ function DayColumn({ plan, offset, startHour, endHour, colorMap, onOpenTask, isT
   );
 }
 
-export function CalendarView({ plan, days, selectedOffset, onSelectDay, onOpenTask }) {
+export function CalendarView({ plan, days, selectedOffset, onSelectDay, onOpenTask, now: nowDate }) {
   const offsets = days.map((d) => d.offset);
   const { startHour, endHour } = useMemo(() => visibleHourRange(plan, offsets), [plan, offsets.join(',')]);
   const hours = endHour - startHour;
-  // One shared clock for every visible day column's auto-cross-out check
-  // (Block's `isPast`), rather than each block/column keeping its own --
-  // ticks once a minute, same cadence the existing per-day "now" line uses.
-  const nowDate = useNow();
   const scrollRef = useRef(null);
   const previous = useRef(null);
   useEffect(() => {
@@ -226,7 +216,16 @@ export function CalendarView({ plan, days, selectedOffset, onSelectDay, onOpenTa
               endHour={endHour}
               colorMap={plan.colorMap}
               onOpenTask={onOpenTask}
-              isToday={!plan.windowStart && day.offset === 0}
+              // Real calendar-date comparison, not `!plan.windowStart` (the
+              // demo's own fixed WINDOW_START anchor always sets
+              // `plan.windowStart`, which made this ALWAYS false -- the "now"
+              // line was silently dead every time real backend data was
+              // loaded, only ever appearing against the mock-data fallback).
+              // `day.date` is real too (`horizonDays`, anchored off
+              // `plan.windowStart` but still a real calendar date), so a
+              // plain same-day comparison against the live clock is correct
+              // regardless of which anchor produced it.
+              isToday={startOfDay(day.date).getTime() === startOfDay(nowDate).getTime()}
               nowDate={nowDate}
             />
           ))}
