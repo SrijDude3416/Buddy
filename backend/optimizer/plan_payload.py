@@ -31,6 +31,17 @@ def to_plan_payload(result, data, window_start, window_days, preferences, solve_
     # occurrence, but 14 lunch sessions all point at the same "meal_lunch".
     meal_task_ids_seen: set[str] = set()
     MEAL_TITLES = {"meal_breakfast": "Breakfast & Shower", "meal_lunch": "Lunch", "meal_dinner": "Dinner"}
+    # Windowed commitments (scheduler.py's commitment handling, mode ==
+    # "windowed") are the general-purpose version of the same problem meals
+    # already solved -- same fix, same reason: frontend/src/lib/adapters.js
+    # drops any `type: "flexible"` session with no task_id from every view.
+    # A LOCKED commitment never reaches here at all (it's kind="fixed",
+    # task_id=None, and renders the same way a class already does -- no
+    # synthetic task needed). b.title already holds the real display name
+    # (set in scheduler.py's extraction), unlike meals' fixed MEAL_TITLES
+    # lookup -- a commitment's name is free text the user chose, not one of
+    # three known values.
+    commitment_task_ids_seen: set[str] = set()
     sessions = []
     for b in result.placed:
         if b.start is None or b.end is None:
@@ -50,6 +61,13 @@ def to_plan_payload(result, data, window_start, window_days, preferences, solve_
             # any other task without implying a countdown that isn't real.
             tasks.append({"_id": b.task_id, "course_id": None, "display_title": title,
                           "source_assignment": title, "status": "not_started",
+                          "due_at": wall(window_start + timedelta(days=window_days)),
+                          "priority_weight": 1, "est_duration_min": round((b.end-b.start).total_seconds()/60)})
+        elif (b.task_id and b.task_id.startswith("commitment_")
+              and b.task_id not in commitment_task_ids_seen):
+            commitment_task_ids_seen.add(b.task_id)
+            tasks.append({"_id": b.task_id, "course_id": None, "display_title": b.title,
+                          "source_assignment": b.title, "status": "not_started",
                           "due_at": wall(window_start + timedelta(days=window_days)),
                           "priority_weight": 1, "est_duration_min": round((b.end-b.start).total_seconds()/60)})
         # locked: true for a real fixed block, same as always, OR for a

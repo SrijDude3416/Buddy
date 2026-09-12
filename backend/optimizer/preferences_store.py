@@ -61,6 +61,7 @@ TOOL_TO_INTERNAL: dict[str, str] = {
     "urgency_emphasis": "urgency_priority",
     "minimum_session_gap": "min_gap_between_sessions",
     "meal_window": "meal_window",  # same name both sides -- there's no separate "nicer" tool-facing name for this one
+    "commitment": "commitment",  # same name both sides, same reason
 }
 INTERNAL_TO_TOOL: dict[str, str] = {v: k for k, v in TOOL_TO_INTERNAL.items()}
 
@@ -73,6 +74,15 @@ MEAL_WINDOW_DEFAULTS: list[dict] = [
     {"meal": "breakfast", "start": "07:00", "end": "10:30", "duration_minutes": 45},
     {"meal": "lunch", "start": "11:00", "end": "13:30", "duration_minutes": 45},
     {"meal": "dinner", "start": "17:30", "end": "20:00", "duration_minutes": 45},
+]
+
+# Default commitments -- currently just Gym, the exact 06:30-07:45 Mon-Fri
+# slot it always ran at back when it was a hardcoded, non-editable ROUTINE
+# entry (run_prototype.py). "locked" (not "windowed") preserves that exact
+# behavior -- a real preference now, editable/unlockable by set_commitment,
+# but not a different schedule for someone who never touches it.
+COMMITMENT_DEFAULTS: list[dict] = [
+    {"name": "Gym", "mode": "locked", "days": ["Mon", "Tue", "Wed", "Thu", "Fri"], "start": "06:30", "end": "07:45"},
 ]
 
 # None => singleton (at most one entry of this internal type, ever).
@@ -89,6 +99,13 @@ SCOPE_FNS: dict[str, ScopeFn | None] = {
     # touch the breakfast one, but re-setting lunch replaces the old lunch
     # window rather than adding a second, conflicting one.
     "meal_window": lambda value: (value["meal"],),
+    # Accumulating, scoped by (normalized) name -- "Gym" and "gym" are the
+    # same commitment, so re-calling set_commitment for either one replaces
+    # the existing entry rather than creating a duplicate. This is also how
+    # "lock"/"unlock" work: there's no separate toggle, just re-calling
+    # set_commitment with mode="locked" or mode="windowed" for the same name,
+    # same replace-on-set mechanism every other preference already uses.
+    "commitment": lambda value: (value["name"].strip().lower(),),
     "daily_load_cap": lambda value: tuple(sorted(value.get("days", []))),  # () = every day
     "avoid_block": lambda value: (
         tuple(sorted(value["days"])),

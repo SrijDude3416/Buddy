@@ -373,6 +373,33 @@ actual, running code — no longer just a sketch):
   immovable." No special-casing elsewhere. This now also covers personal routine
   blocks (gym, meals — CLAUDE.md's onboarding "outside commitments" question feeds
   this), materialized exactly like `courses.meeting_times`, not just class times.
+- **User-named personal commitments (gym, club meetings, ...) are a `commitment`
+  preference, chat-editable via `set_commitment`, with two modes** — `locked` (an
+  exact, immovable time, same treatment as a fixed class) and `windowed` (a bounded
+  range CP-SAT places freely within, same treatment as a meal). There is no separate
+  lock/unlock tool: toggling is just re-calling `set_commitment` for the same
+  (case-insensitively scoped) name with a different `mode`. Like `meal_window`, this
+  type is handled directly in `scheduler.py`, not `preferences.py`'s compiler
+  registry — its solved placement has to be extracted back out after the solve to
+  render as a real calendar block, which the registry's `(weight, expr)`
+  objective-term contract can't carry. A locked commitment deliberately does **not**
+  silently skip on conflict (unlike a fixed class's own clash-avoidance for other
+  flexible work) — it goes into the same mandatory `AddNoOverlap` pool as a real
+  class, so a genuine double-booking (e.g. a locked "Club Meeting" scheduled during
+  an actual lecture) surfaces as an honest INFEASIBLE, matching `avoid_block`'s
+  precedent, not a quietly dropped commitment. Gym's old hardcoded `ROUTINE` entry
+  (`run_prototype.py`) was fully retired in favor of a seeded `commitment` default —
+  leaving it hardcoded *and* letting a user add their own "Gym" commitment through
+  chat double-booked the same name across two independent mechanisms, confirmed live
+  as a real INFEASIBLE (a user-added windowed Gym got boxed in by the hardcoded Gym
+  block plus meal windows already occupying the same morning). Like meals, a windowed
+  commitment session needs a synthetic shared `task_id` (`f"commitment_{slug}"`,
+  `plan_payload.py`) so the frontend doesn't silently drop it — `adapters.js` drops
+  any flexible session with no `task_id`. Recovering the task_id from a placed
+  block's id uses `rsplit("_", 1)` (strip only the trailing `_{day}` index), not
+  meals' `split("_")[1]` — a slugified commitment name can itself contain
+  underscores (e.g. "Club Meeting" → `club_meeting`), so splitting on the *first*
+  underscore would truncate the name.
 - **Working hours (e.g. 8am–11pm) bound *flexible* sessions directly, never as a
   shared blackout interval.** An early version modeled "off-hours" as a mandatory
   interval everything had to avoid overlapping — reasonable until a real fixed

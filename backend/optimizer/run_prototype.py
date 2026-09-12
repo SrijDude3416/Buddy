@@ -26,15 +26,20 @@ NOW = datetime.fromisoformat("2026-09-12T00:00:00-04:00")  # start of window == 
 # here rather than a new dataclass; its `location` field doubles as the
 # block's display label since personal blocks don't have a real location.
 #
-# Meals used to be fixed entries here too (exact time, immovable, same as
-# Gym). They aren't anymore -- a meal genuinely can shift day to day, unlike
-# a lecture. They're `meal_window` preferences now instead (seed_mongo.py's
-# seed_default_preferences(), tool-editable via set_meal_window): a bounded
-# time range CP-SAT places freely within, not an exact time nobody chose.
-# Gym stays here -- it's a real fixed commitment, not a meal.
-ROUTINE: list[MeetingTime] = [
-    MeetingTime(["Mon", "Tue", "Wed", "Thu", "Fri"], "06:30", "07:45", "Gym"),
-]
+# Meals AND Gym used to be fixed entries here (exact time, immovable).
+# Neither is anymore. Meals became `meal_window` preferences (a meal
+# genuinely can shift day to day, unlike a lecture); Gym became a
+# `commitment` preference, mode="locked" (seed_mongo.py's
+# seed_default_preferences(), tool-editable via set_commitment) -- same
+# exact 06:30-07:45 Mon-Fri it always ran at, just a real, chat-editable
+# preference now instead of a hardcoded constant nothing could touch. This
+# stopped being optional the moment `commitment` existed as a general
+# mechanism: leaving Gym hardcoded here AND letting a user add their own
+# "Gym" commitment through chat would double-book the same name against two
+# independent mechanisms -- confirmed live (a user-added windowed Gym
+# commitment went straight to INFEASIBLE, boxed in by this hardcoded block
+# plus the meal windows already occupying the same morning).
+ROUTINE: list[MeetingTime] = []
 
 # Hand-authored stand-ins for what onboarding/chat would eventually produce
 # (CLAUDE.md: preferences are always typed objects the compiler registry

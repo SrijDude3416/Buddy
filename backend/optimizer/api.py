@@ -31,6 +31,7 @@ from preferences_store import (
     TOOL_TO_INTERNAL,
     INTERNAL_TO_TOOL,
     MEAL_WINDOW_DEFAULTS,
+    COMMITMENT_DEFAULTS,
     PreferenceStore,
     AmbiguousRemoval,
     NothingToRemove,
@@ -39,6 +40,7 @@ from run_prototype import ROUTINE, NOW as WINDOW_START
 from api_models import (
     SolveRequest,
     SetMealWindowIn,
+    SetCommitmentIn,
     SolveResponse,
     PlacedBlockOut,
     SetPreferredWorkHoursIn,
@@ -92,15 +94,19 @@ ALWAYS_ON_DEFAULTS: list[Preference] = []
 # same way by seed_mongo.py) keep behaving exactly as documented, while
 # these three are now genuinely just 3 more preferences someone could set,
 # remove, or replace like any other.
-# Meal windows follow the same "used to be a hardcoded constant, now an
-# ordinary tool-editable preference" story -- they used to be exact,
-# immovable ROUTINE entries (ROUTINE, imported below); see scheduler.py's
-# meal-window handling and MEAL_WINDOW_DEFAULTS for the rest.
+# Meal windows and Gym follow the same "used to be a hardcoded constant,
+# now an ordinary tool-editable preference" story -- meals used to be exact,
+# immovable ROUTINE entries; Gym did too, until it collided with a user's
+# own chat-added "Gym" commitment the moment `commitment` existed as a
+# general mechanism (see run_prototype.py's ROUTINE, now empty). See
+# scheduler.py's meal-window/commitment handling and MEAL_WINDOW_DEFAULTS/
+# COMMITMENT_DEFAULTS for the rest.
 for _default_type, _default_value, _default_weight in [
     ("min_gap_between_sessions", {"minutes": 15}, 0),  # hard; weight unused
     ("spread_multi_session_tasks", {}, WEIGHT_MAP["spread_multi_session_tasks"]["moderate"]),
     ("urgency_priority", {}, WEIGHT_MAP["urgency_priority"]["moderate"]),
     *[("meal_window", v, 0) for v in MEAL_WINDOW_DEFAULTS],  # hard; weight unused
+    *[("commitment", v, 0) for v in COMMITMENT_DEFAULTS],  # hard; weight unused
 ]:
     STORE.set(_default_type, _default_value, _default_weight, source="onboarding")
 
@@ -322,6 +328,17 @@ def set_meal_window(body: SetMealWindowIn, resolve: bool = True, store: Preferen
     value = {"meal": body.meal, "start": body.start_time, "end": body.end_time, "duration_minutes": body.duration_minutes}
     action = store.set("meal_window", value, weight=0, source="chat")  # hard window; weight unused
     return _tool_response("meal_window", value, None, action, resolve, store)
+
+
+@app.post("/tools/set_commitment", response_model=ToolCallResponse)
+def set_commitment(body: SetCommitmentIn, resolve: bool = True, store: PreferenceStore = Depends(get_preference_store)) -> ToolCallResponse:
+    value = {"name": body.name, "mode": body.mode, "start": body.start_time, "end": body.end_time}
+    if body.days:
+        value["days"] = body.days
+    if body.mode == "windowed":
+        value["duration_minutes"] = body.duration_minutes
+    action = store.set("commitment", value, weight=0, source="chat")  # hard either way; weight unused
+    return _tool_response("commitment", value, None, action, resolve, store)
 
 
 @app.post("/tools/remove_preference", response_model=ToolCallResponse)

@@ -210,10 +210,58 @@ class SetMealWindowIn(ToolInput):
         return self
 
 
+class SetCommitmentIn(ToolInput):
+    """A user-named, day-scoped personal commitment -- gym, club meetings,
+    a standing appointment, anything that isn't schoolwork but needs real
+    time on the calendar. Generalizes two things that used to be separate
+    and neither chat-editable: ROUTINE (api.py's old hardcoded, exact-time
+    personal blocks -- now `mode="locked"`) and meal_window's bounded-range
+    mechanism (now `mode="windowed"`, available for anything, not just the
+    three meal types).
+
+    Re-calling this for the SAME `name` replaces the previous entry --
+    that's also how "lock" and "unlock" work: there's no separate toggle
+    tool, just calling this again with a different `mode` for the same
+    commitment (preferences_store.SCOPE_FNS scopes `commitment` by
+    normalized name, same singleton-per-name pattern meal_window uses
+    per-meal)."""
+    name: str = Field(min_length=1, max_length=60)
+    mode: Literal["locked", "windowed"] = "windowed"
+    days: list[Weekday] | None = Field(default=None, min_length=1)  # omit for every day
+    start_time: str = _time_field()
+    end_time: str = _time_field()
+    # Only meaningful for mode="windowed" -- how long the activity itself
+    # takes, within the [start_time, end_time) range CP-SAT is free to place
+    # it in. Ignored for mode="locked", where start_time/end_time already
+    # give the exact, non-negotiable span. No single tested default the way
+    # meals have one (45 min) -- a commitment's real length varies too much
+    # to guess well, so this stays required for windowed rather than
+    # defaulting to a number likely to be wrong.
+    duration_minutes: int | None = Field(default=None, ge=15, le=240)
+
+    @model_validator(mode="after")
+    def _end_after_start(self) -> "SetCommitmentIn":
+        if self.end_time <= self.start_time:
+            raise ValueError("end_time must be later than start_time")
+        return self
+
+    @model_validator(mode="after")
+    def _windowed_needs_duration_that_fits(self) -> "SetCommitmentIn":
+        if self.mode != "windowed":
+            return self
+        if self.duration_minutes is None:
+            raise ValueError("duration_minutes is required when mode is \"windowed\" -- how long the commitment itself takes, within the window")
+        start_min = int(self.start_time[:2]) * 60 + int(self.start_time[3:])
+        end_min = int(self.end_time[:2]) * 60 + int(self.end_time[3:])
+        if end_min - start_min < self.duration_minutes:
+            raise ValueError("the window is narrower than duration_minutes -- nothing could fit in it")
+        return self
+
+
 class RemovePreferenceIn(ToolInput):
     preference_type: Literal[
         "preferred_work_hours", "daily_workload_limit", "protected_time_block", "break_habits",
-        "task_spacing", "urgency_emphasis", "minimum_session_gap", "meal_window",
+        "task_spacing", "urgency_emphasis", "minimum_session_gap", "meal_window", "commitment",
     ]
     match: dict | None = None
 

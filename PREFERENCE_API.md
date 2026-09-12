@@ -312,7 +312,7 @@ their schedule.
 
 Every tool in this section is implemented and tested against real data. §9 covers
 what's designed but not wired up yet — don't call those; they exist in the catalog
-below intentionally and only these ten do.
+below intentionally and only these eleven do.
 
 ### `set_preferred_work_hours`
 **Singleton.** Sets the one daily window flexible work is rewarded for landing in.
@@ -474,13 +474,60 @@ later, after 7."*
 → `set_meal_window(meal="lunch", start_time="11:30", end_time="14:00")`
 → replaces lunch's previous window; breakfast and dinner are untouched.
 
+### `set_commitment`
+**Accumulating**, scope = `name` (case-insensitive — "Gym" and "gym" are the
+same commitment; setting Gym never touches Club Meeting or vice versa).
+**Hard** — no `strength` parameter, same reasoning as `protect_time_block`.
+
+A personal commitment that needs real time on the calendar but isn't
+schoolwork — gym, club meetings, a standing appointment, anything recurring.
+Two modes, and this is the important part:
+- **`mode="locked"`** — an EXACT, immovable time, the same as a class.
+- **`mode="windowed"`** — a bounded RANGE the solver places freely within,
+  wherever fits best each day; possibly a different exact time day to day.
+
+**There is no separate lock/unlock tool.** Calling `set_commitment` again for
+the same `name` replaces it outright — locking an existing windowed
+commitment, or unlocking an existing locked one, is just calling this again
+with the other `mode`.
+
+Call it when the student describes a recurring personal commitment: *"I want
+to go to the gym every weekday sometime between 6 and 9am, it takes about an
+hour"* (windowed — a range was given), *"club meets Wednesday 7 to 9pm, lock
+that in"* (locked — one specific time was given), *"actually just lock gym
+at 6am"* (locked — switching an existing windowed commitment).
+
+| Parameter | Type | Required | Notes |
+|---|---|---|---|
+| `name` | string, 1-60 chars | yes | short label, e.g. `"Gym"`; re-using the same name (case-insensitive) replaces the existing entry |
+| `mode` | `locked`\|`windowed` | no, default `windowed` | |
+| `days` | array of weekday strings | no | omit for every day; don't pass all seven explicitly |
+| `start_time` | `"HH:MM"`, 24-hour | yes | exact start (`locked`) or earliest allowed (`windowed`) |
+| `end_time` | `"HH:MM"`, 24-hour | yes | exact end (`locked`) or latest allowed (`windowed`) — must leave room for `duration_minutes` |
+| `duration_minutes` | integer, 15-240 | **required when `mode="windowed"`**, ignored for `locked` | how long the commitment itself takes, within the window — no single tested default the way meals have one, a commitment's real length varies too much to guess |
+
+**Example** — *"I want to go to the gym every weekday sometime between 6 and
+9am, it takes about an hour"*
+→ `set_commitment(name="Gym", mode="windowed", days=["Mon","Tue","Wed","Thu","Fri"], start_time="06:00", end_time="09:00", duration_minutes=60)`
+
+**Example, locking it back** — *"Actually just lock gym at 6am to 7am"*
+→ `set_commitment(name="Gym", mode="locked", days=["Mon","Tue","Wed","Thu","Fri"], start_time="06:00", end_time="07:00")`
+→ replaces the windowed entry above outright; same `name`, same singleton-per-name scope.
+
+**A locked commitment that genuinely conflicts with a real class goes
+INFEASIBLE, on purpose** — it does not get the silent "skip this occurrence"
+treatment a personal routine block historically got; a student who
+explicitly locked something meant it as non-negotiable, and a real conflict
+should surface honestly (same as `protect_time_block`), not vanish without
+telling anyone.
+
 ### `remove_preference`
 Deletes one active preference. See §4 for the persistence model this depends on.
 
 | Parameter | Type | Required | Notes |
 |---|---|---|---|
-| `preference_type` | one of `preferred_work_hours`, `daily_workload_limit`, `protected_time_block`, `break_habits`, `task_spacing`, `urgency_emphasis`, `minimum_session_gap`, `meal_window` | yes | |
-| `match` | object | only if >1 entry of that type is active — normal for `meal_window`, since breakfast/lunch/dinner are three separate entries | repeat enough of the original parameters to identify which one, e.g. `{"days": ["Fri","Sat"]}` for a protected block, or `{"meal": "lunch"}` |
+| `preference_type` | one of `preferred_work_hours`, `daily_workload_limit`, `protected_time_block`, `break_habits`, `task_spacing`, `urgency_emphasis`, `minimum_session_gap`, `meal_window`, `commitment` | yes | |
+| `match` | object | only if >1 entry of that type is active — normal for `meal_window` (breakfast/lunch/dinner) and `commitment` (gym, club meetings, ...) | repeat enough of the original parameters to identify which one, e.g. `{"days": ["Fri","Sat"]}` for a protected block, `{"meal": "lunch"}` for a meal window, or `{"name": "Gym"}` for a commitment |
 
 **Example** — *"Actually never mind the Sunday thing, I'll manage"*, with both a
 general daily cap and a Sunday-specific one active
@@ -591,20 +638,22 @@ catalog above. Noted here so whoever wires this next knows exactly what's missin
 | `set_urgency_emphasis` | `urgency_priority` | `_compile_urgency_priority` | gentle=4, moderate=8\*, firm=16 |
 | `set_minimum_gap` | `min_gap_between_sessions` | `_compile_min_gap` | hard, no weight (`minutes`, tested default 15) |
 | `set_meal_window` | `meal_window` | *(none — see below)* | hard, no weight (`start`/`end`/`duration_minutes`, tested default 45-minute meals) |
+| `set_commitment` | `commitment` | *(none — see below)* | hard, no weight (`mode="locked"`\|`"windowed"`, `start`/`end`, `duration_minutes` when windowed) |
 
 \* = the exact value empirically tested this session (see `backend/optimizer/README.md`,
 "Round 4" for `max_continuous_work`'s tuning history in particular — the others are
 principled interpolations around one tested point, not independently verified across
 the full range; `set_task_spacing`/`set_urgency_emphasis`'s `moderate` are the values
 these two ran at unconditionally, for every solve, before they were tools at all — see
-§6). Six of the seven compilers live in `backend/optimizer/preferences.py`, dispatched
-by `REGISTRY` at the bottom of that file. `meal_window` is the exception — it's handled
-directly in `backend/optimizer/scheduler.py`, not the registry, because unlike every
-other type its solved placement has to be extracted back out after the solve (to render
-as a real calendar block), which the registry's `(weight, expr)` objective-term contract
-has no way to carry. Still a real, hand-written, deterministic piece of code turning one
-`(type, value)` preference into CP-SAT variables — nothing about the "AI never touches
-solver code" boundary is different, just where the code lives.
+§6). Six of the eight compilers live in `backend/optimizer/preferences.py`, dispatched
+by `REGISTRY` at the bottom of that file. `meal_window` and `commitment` are the
+exceptions — both are handled directly in `backend/optimizer/scheduler.py`, not the
+registry, because unlike every other type their solved placement has to be extracted
+back out after the solve (to render as a real calendar block), which the registry's
+`(weight, expr)` objective-term contract has no way to carry. Still real, hand-written,
+deterministic code turning one `(type, value)` preference into CP-SAT variables —
+nothing about the "AI never touches solver code" boundary is different, just where the
+code lives.
 
 Weights above were tuned against a 14-day rolling window
 (`backend/optimizer/run_prototype.py`'s default), not the 7-day horizon the frontend
@@ -619,7 +668,7 @@ but that's an expectation, not something re-verified at 7 days yet.
 own small API surface (find/delete by type+scope, list by student) lives in
 `preferences_store.py`'s `PreferenceStore`, not `compile_all()`.
 
-`POST /solve`, all ten tools under `/tools/`, and `GET /plan` are implemented in
+`POST /solve`, all eleven tools under `/tools/`, and `GET /plan` are implemented in
 `backend/optimizer/api.py` (models in `api_models.py`, persistence in
 `preferences_store.py`) and verified end-to-end against real requests — including the
 error paths (`409` ambiguous removal, `404` nothing to remove, `422` validation). Still

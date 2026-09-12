@@ -32,7 +32,7 @@ from datetime import datetime
 from pathlib import Path
 
 from mongo_loader import DEMO_USER_ID, SEED_SOURCE, ABBR_TO_JS_WEEKDAY, get_db
-from preferences_store import WEIGHT_MAP, MEAL_WINDOW_DEFAULTS
+from preferences_store import WEIGHT_MAP, MEAL_WINDOW_DEFAULTS, COMMITMENT_DEFAULTS
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 TEST_DATA_PATH = REPO_ROOT / "test-data" / "schedule_test_data.json"
@@ -150,6 +150,7 @@ def seed_default_preferences(db=None) -> None:
         {"type": "urgency_priority", "value": {},
          "weight": WEIGHT_MAP["urgency_priority"]["moderate"]},
         *[{"type": "meal_window", "value": v, "weight": 0} for v in MEAL_WINDOW_DEFAULTS],  # hard; weight unused
+        *[{"type": "commitment", "value": v, "weight": 0} for v in COMMITMENT_DEFAULTS],  # hard; weight unused
     ]
     db.preferences.insert_many(
         [{"user_id": DEMO_USER_ID, "source": "onboarding", "source_message_id": None, **d} for d in defaults]

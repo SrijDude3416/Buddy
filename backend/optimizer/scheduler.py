@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import math
 import os
+import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta, time
 
@@ -51,6 +52,26 @@ PREF_SCALE = 100  # margin of safety so tier 2 reliably dominates tier 3's tie-b
 
 def _time_to_slot_of_day(t: time) -> int:
     return (t.hour * 60 + t.minute) // SLOT_MINUTES
+
+
+def _time_to_slot_of_day_ceil(t: time) -> int:
+    # Mirrors slot_of_ceil() below, in time-of-day terms rather than
+    # absolute datetime. Needed for a LOCKED commitment's end time -- it
+    # becomes a real, mandatory no-overlap interval (like a fixed course
+    # block), and flooring its end under-reserves it the same way CLAUDE.md
+    # already documents happened once with class end times: a locked
+    # commitment ending at, say, 19:50 must reserve through slot 80 (20:00),
+    # not slot 79 (19:45), or a freshly-placed session could legally start
+    # in the 10 real minutes the floored version would leave uncovered.
+    return math.ceil((t.hour * 60 + t.minute) / SLOT_MINUTES)
+
+
+def _slugify(name: str) -> str:
+    """User-provided commitment name -> a safe id fragment. Lowercased and
+    collapsed so "Club Meeting" and "club   meeting" produce the same id
+    (matters for locked_sessions matching across solves -- see the
+    windowed-commitment loop)."""
+    return re.sub(r"[^a-z0-9]+", "_", name.strip().lower()).strip("_") or "commitment"
 
 
 @dataclass
@@ -207,6 +228,45 @@ def build_and_solve(
                 )
             )
 
+    # --- Locked commitments: a user-named, day-scoped personal commitment
+    # (gym, club meetings, ...) pinned to an EXACT time -- read directly from
+    # `preferences` (type == "commitment", mode == "locked"), same reason
+    # meal_window/windowed commitments are (see below): handled outside
+    # compile_all()'s registry. Otherwise identical in kind to a personal
+    # routine block above -- immovable, no decision variable -- except it's
+    # genuinely data-driven (a real preference someone set via chat) rather
+    # than a hardcoded MeetingTime, and deliberately does NOT get
+    # clashes_with_class's silent skip: a user who explicitly locked
+    # something meant it as a hard commitment, the same as protect_time_block
+    # already is: a real conflict should surface as INFEASIBLE, not vanish
+    # without telling anyone.
+    for pref in preferences:
+        if pref.type != "commitment" or pref.value.get("mode") != "locked":
+            continue
+        name = pref.value["name"]
+        days_wanted = set(pref.value.get("days") or WEEKDAY_ABBR)
+        lo = _time_to_slot_of_day(time.fromisoformat(pref.value["start"]))
+        hi = _time_to_slot_of_day_ceil(time.fromisoformat(pref.value["end"]))
+        if hi <= lo:
+            continue
+        slug = _slugify(name)
+        for day in range(window_days):
+            date = (window_start + timedelta(days=day)).date()
+            weekday_abbr = WEEKDAY_ABBR[date.weekday()]
+            if weekday_abbr not in days_wanted:
+                continue
+            base = day * SLOTS_PER_DAY
+            block_id = f"commitment_{slug}_{day}"
+            iv = model.NewIntervalVar(base + lo, hi - lo, base + hi, block_id)
+            all_intervals.append(iv)
+            placed_fixed.append(
+                PlacedBlock(
+                    id=block_id, task_id=None, course_id=None, title=name, kind="fixed",
+                    start=window_start + timedelta(minutes=(base + lo) * SLOT_MINUTES),
+                    end=window_start + timedelta(minutes=(base + hi) * SLOT_MINUTES),
+                )
+            )
+
     # --- Locked sessions: prior placements (typically "already in the past
     # by now") a caller wants preserved verbatim -- treated exactly like a
     # fixed course block, a mandatory interval in the SAME AddNoOverlap pool,
@@ -271,6 +331,45 @@ def build_and_solve(
             iv = model.NewIntervalVar(start, duration_slots, end, block_id)
             all_intervals.append(iv)
             meal_vars[block_id] = (start, end)
+
+    # --- Windowed commitments: the other half of `commitment` preferences
+    # (mode == "windowed") -- day-scoped, same mandatory-but-movable
+    # treatment as meal windows just above (mirrors that block closely on
+    # purpose; not refactored into one shared helper, matching this file's
+    # own existing precedent of fixed-course-blocks vs personal-routine-
+    # blocks staying two similar-but-separate loops rather than one merged
+    # abstraction). `name` is free text, not a fixed enum like `meal` --
+    # `_slugify` turns it into a safe, stable id fragment so the same
+    # commitment gets the same ids across solves (needed for locked_ids to
+    # correctly recognize "this exact occurrence was already decided").
+    commitment_vars: dict[str, tuple[cp_model.IntVar, cp_model.IntVar]] = {}
+    commitment_titles: dict[str, str] = {}
+    for pref in preferences:
+        if pref.type != "commitment" or pref.value.get("mode") != "windowed":
+            continue
+        name = pref.value["name"]
+        slug = _slugify(name)
+        days_wanted = set(pref.value.get("days") or WEEKDAY_ABBR)
+        lo = _time_to_slot_of_day(time.fromisoformat(pref.value["start"]))
+        hi = _time_to_slot_of_day(time.fromisoformat(pref.value["end"]))
+        duration_slots = pref.value.get("duration_minutes", 60) // SLOT_MINUTES
+        if hi - lo < duration_slots:
+            continue  # window too narrow for its own duration -- nothing sane to place
+        commitment_titles[f"commitment_{slug}"] = name
+        for day in range(window_days):
+            date = (window_start + timedelta(days=day)).date()
+            weekday_abbr = WEEKDAY_ABBR[date.weekday()]
+            if weekday_abbr not in days_wanted:
+                continue
+            block_id = f"commitment_{slug}_{day}"
+            if block_id in locked_ids:
+                continue  # already decided by a prior solve; see the locked_sessions loop above
+            base = day * SLOTS_PER_DAY
+            start = model.NewIntVar(base + lo, base + hi - duration_slots, f"commitstart_{slug}_{day}")
+            end = model.NewIntVar(base + lo + duration_slots, base + hi, f"commitend_{slug}_{day}")
+            iv = model.NewIntervalVar(start, duration_slots, end, block_id)
+            all_intervals.append(iv)
+            commitment_vars[block_id] = (start, end)
 
     # --- Flexible sessions, decomposed from not-done tasks. Optional so an
     # individual session can come back "unplaced" instead of the whole solve
@@ -371,15 +470,19 @@ def build_and_solve(
         "all_intervals": all_intervals,  # compilers may append (e.g. avoid_block)
         "extra_no_overlap_groups": [],
     }
-    # meal_window is deliberately NOT in preferences.py's REGISTRY -- it's
-    # handled directly above, before this point, because unlike every other
-    # type it needs its solved value extracted back out afterward (see the
-    # meal-window loop's own comment). compile_all() raises on an
-    # unregistered type on purpose (a real safety net against a typo'd or
-    # forgotten compiler); meal_window has to be filtered out here rather
-    # than registered with a no-op, or that safety net would have a
-    # permanent, silent hole in it.
-    preference_terms = compile_all(model, [p for p in preferences if p.type != "meal_window"], session_ctxs, pref_ctx)
+    # meal_window and commitment are deliberately NOT in preferences.py's
+    # REGISTRY -- both handled directly above, before this point, because
+    # unlike every other type they need their solved values extracted back
+    # out afterward (see the meal-window/windowed-commitment loops' own
+    # comments; a LOCKED commitment doesn't need this -- it's a plain
+    # mandatory interval already appended to placed_fixed, same as a fixed
+    # course block). compile_all() raises on an unregistered type on purpose
+    # (a real safety net against a typo'd or forgotten compiler); these two
+    # have to be filtered out here rather than registered with a no-op, or
+    # that safety net would have a permanent, silent hole in it.
+    preference_terms = compile_all(
+        model, [p for p in preferences if p.type not in ("meal_window", "commitment")], session_ctxs, pref_ctx
+    )
 
     model.AddNoOverlap(all_intervals)
     for group in pref_ctx["extra_no_overlap_groups"]:
@@ -473,6 +576,22 @@ def build_and_solve(
                 # reading this file in isolation.
                 id=block_id, task_id=f"meal_{meal}", course_id=None,
                 title=MEAL_LABELS.get(meal, meal.capitalize()), kind="flexible",
+                start=window_start + timedelta(minutes=s * SLOT_MINUTES),
+                end=window_start + timedelta(minutes=e * SLOT_MINUTES),
+            ))
+        # Windowed commitments: mandatory the same way meals are (see above)
+        # -- always placed on a FEASIBLE/OPTIMAL solve. task_id strips only
+        # the trailing `_{day}` (rsplit, not split-on-"_"[1] the way meals'
+        # extraction does just above) because a user-provided name can
+        # itself contain underscores once slugified ("Club Meeting" ->
+        # "club_meeting") -- splitting on the first underscore would cut the
+        # name in half instead of the day index.
+        for block_id, (start_v, end_v) in commitment_vars.items():
+            task_id = block_id.rsplit("_", 1)[0]
+            s, e = solver.Value(start_v), solver.Value(end_v)
+            placed.append(PlacedBlock(
+                id=block_id, task_id=task_id, course_id=None,
+                title=commitment_titles.get(task_id, task_id), kind="flexible",
                 start=window_start + timedelta(minutes=s * SLOT_MINUTES),
                 end=window_start + timedelta(minutes=e * SLOT_MINUTES),
             ))

@@ -186,6 +186,50 @@
       }
     },
     {
+      "name": "set_commitment",
+      "description": "Add or update a personal commitment that needs real time on the calendar but isn't schoolwork -- gym, club meetings, a standing appointment, anything recurring. Two modes: 'locked' pins it to an EXACT time, like a class (use this when the student gives one specific time, e.g. 'club meets Wednesday 7 to 9pm, lock that in'). 'windowed' gives it a bounded RANGE the solver places freely within, wherever fits best each day -- possibly a different exact time day to day (use this when the student gives a range or says 'sometime around', e.g. 'I want to go to the gym every day sometime between 6 and 9am'). Calling this again for the SAME name replaces it -- this is also how you lock or unlock an existing commitment: just call it again with a different mode. There is no separate lock/unlock tool.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 60,
+            "description": "A short label for this commitment, e.g. 'Gym', 'Club Meeting'. Re-using the same name (case-insensitive) replaces the existing commitment by that name."
+          },
+          "mode": {
+            "type": "string",
+            "enum": ["locked", "windowed"],
+            "default": "windowed",
+            "description": "'locked' = exact, immovable time (like a class). 'windowed' = a range the solver places freely within."
+          },
+          "days": {
+            "type": "array",
+            "items": { "type": "string", "enum": ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] },
+            "minItems": 1,
+            "description": "Which days this recurs on. OMIT ENTIRELY for every day -- do not pass all seven explicitly."
+          },
+          "start_time": {
+            "type": "string",
+            "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$",
+            "description": "24-hour HH:MM. For 'locked', the exact start. For 'windowed', the earliest allowed start."
+          },
+          "end_time": {
+            "type": "string",
+            "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$",
+            "description": "24-hour HH:MM. For 'locked', the exact end. For 'windowed', the latest allowed end -- must leave enough room for duration_minutes."
+          },
+          "duration_minutes": {
+            "type": "integer",
+            "minimum": 15,
+            "maximum": 240,
+            "description": "REQUIRED when mode is 'windowed' -- how long the commitment itself takes, within the window. Not used for 'locked' (start_time/end_time already give the exact span)."
+          }
+        },
+        "required": ["name", "start_time", "end_time"]
+      }
+    },
+    {
       "name": "remove_preference",
       "description": "Retract a previously set preference. Call this when the student says something like 'never mind that', 'actually forget the Sunday thing', 'I changed my mind about evenings', or any other request to undo or cancel a specific earlier preference. Always confirm which preference in plain language before or after calling this if there's any doubt which one they mean.",
       "parameters": {
@@ -193,12 +237,12 @@
         "properties": {
           "preference_type": {
             "type": "string",
-            "enum": ["preferred_work_hours", "daily_workload_limit", "protected_time_block", "break_habits", "task_spacing", "urgency_emphasis", "minimum_session_gap", "meal_window"],
+            "enum": ["preferred_work_hours", "daily_workload_limit", "protected_time_block", "break_habits", "task_spacing", "urgency_emphasis", "minimum_session_gap", "meal_window", "commitment"],
             "description": "Which kind of preference to remove."
           },
           "match": {
             "type": "object",
-            "description": "Needed for daily_workload_limit or protected_time_block when MORE THAN ONE is currently active, and for meal_window whenever more than one meal's window is active (which is normal -- breakfast/lunch/dinner each have their own) -- repeat enough of the original call's parameters to identify which one (e.g. {\"days\": [\"Fri\", \"Sat\"]} for a protected block, or {\"meal\": \"lunch\"} for a meal window). Omit for preferred_work_hours/break_habits (there's only ever one), or when only one entry of the given type currently exists."
+            "description": "Needed for daily_workload_limit or protected_time_block when MORE THAN ONE is currently active, for meal_window whenever more than one meal's window is active (which is normal -- breakfast/lunch/dinner each have their own), and for commitment whenever more than one commitment is active (also normal -- gym and club meetings coexist) -- repeat enough of the original call's parameters to identify which one (e.g. {\"days\": [\"Fri\", \"Sat\"]} for a protected block, {\"meal\": \"lunch\"} for a meal window, or {\"name\": \"Gym\"} for a commitment). Omit for preferred_work_hours/break_habits (there's only ever one), or when only one entry of the given type currently exists."
           }
         },
         "required": ["preference_type"]

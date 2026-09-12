@@ -22,7 +22,7 @@ from plan_payload import to_plan_payload
 
 ToolName = Literal["set_preferred_work_hours", "set_daily_workload_limit", "protect_time_block",
                    "set_break_habits", "set_task_spacing", "set_urgency_emphasis", "set_minimum_gap",
-                   "set_meal_window", "remove_preference", "list_current_preferences"]
+                   "set_meal_window", "set_commitment", "remove_preference", "list_current_preferences"]
 
 
 class PreferenceCall(BaseModel):
@@ -91,6 +91,13 @@ def canonical_preferences(store):
         elif entry.internal_type == "meal_window":
             name, args = "set_meal_window", {"meal": value["meal"], "start_time": value["start"],
                                               "end_time": value["end"], "duration_minutes": value["duration_minutes"]}
+        elif entry.internal_type == "commitment":
+            name, args = "set_commitment", {"name": value["name"], "mode": value["mode"],
+                                             "start_time": value["start"], "end_time": value["end"]}
+            if value.get("days"):
+                args["days"] = value["days"]
+            if value.get("duration_minutes") is not None:
+                args["duration_minutes"] = value["duration_minutes"]
         else:
             # A genuinely unrecognized internal_type is a bug upstream (a
             # new preferences.py compiler registered without a matching tool
@@ -135,6 +142,7 @@ def register_pipeline(app):
         "set_urgency_emphasis": (models.SetUrgencyEmphasisIn, api.set_urgency_emphasis),
         "set_minimum_gap": (models.SetMinimumGapIn, api.set_minimum_gap),
         "set_meal_window": (models.SetMealWindowIn, api.set_meal_window),
+        "set_commitment": (models.SetCommitmentIn, api.set_commitment),
         "remove_preference": (models.RemovePreferenceIn, api.remove_preference),
     }
 
