@@ -681,6 +681,60 @@ actual, running code — no longer just a sketch):
     OpenAI's context on every turn — `add_task` needs a real "today" to
     resolve relative due-date language ("due Friday," "in 5 days") against,
     and `remove_task` needs real task ids to target without guessing.
+- **"Demo" and "Get started" are two genuinely different Mongo identities now
+  (`backend/optimizer/request_identity.py`), and getting either one wrong is a
+  real, live-reproducible way to corrupt the shared demo baseline** — found
+  twice, live, while verifying this landing page (added in a teammate's auth
+  work) still does what its own labels promise. `X-Buddy-Mode: demo|live`
+  (set from the `buddy_mode` cookie, `buddy/lib/auth/data-access.ts`) becomes
+  `request_mode`/`current_user` context vars for the life of one request
+  (`register_identity`'s middleware). `mongo_state.py`'s writes
+  (`save_preferences`, `save_plan_cache`, `log_optimizer_run`) all skip
+  entirely for `request_mode == "demo"` — deliberate, tested
+  (`test_request_identity.py`'s `test_demo_never_reads_or_writes_mongo`): no
+  demo chat session, ever, should be able to mutate the shared
+  `DEMO_USER_ID` documents every demo visitor reads.
+  - **Bug 1: the READ side was gated the same way, which silently dropped
+    every seeded default from every demo solve.** `load_preferences()`
+    returning an empty store for demo mode (matching the same test) meant a
+    fresh "Demo" click produced a calendar with none of `seed_mongo.py`'s
+    seeded preferred-hours/meal-windows/gym-commitment/spacing/urgency/gap —
+    confirmed live: no Gym block, no meal blocks, nothing, on a completely
+    fresh cookie session. Reverting the read-side gate (make demo mode read
+    Mongo like everyone else) is the fix that seems obvious, and it's wrong:
+    it re-breaks the "demo never touches Mongo" test for a real reason —
+    "demo never touches Mongo, full stop" and "demo always shows the same
+    seeded test data" are two different intents that genuinely conflict once
+    the only source for the second one is a live Mongo read. Resolved by
+    `mongo_state.demo_default_preferences()`: the exact same default set
+    `seed_mongo.py` writes, reconstructed as a pure Python constant instead
+    of a query — satisfies both intents at once, since there's no longer a
+    live document for "always the same" to depend on. `initial_plan()`
+    (`preference_pipeline.py`) uses it for `request_mode == "demo"` instead
+    of calling `load_preferences()` and accepting an empty result. Keep this
+    constant hand-synced with `seed_default_preferences()`'s own `defaults`
+    list — no single source both read from, same tradeoff `WEIGHT_MAP`'s own
+    "hand-sync this table" comment already accepts elsewhere in this file.
+  - **Bug 2, more serious: "live" mode's Mongo user id, until real
+    per-account ids exist, defaulted to the literal string `"demo-carlos"` —
+    the same id the demo baseline lives under.** Live writes are NOT gated
+    the way demo writes are (a signed-in account's preferences are supposed
+    to persist), so completing the "Get started" onboarding wizard as a
+    "live" user overwrote `DEMO_USER_ID`'s 8 seeded preferences with
+    whatever that one wizard run produced (just `set_preferred_work_hours`)
+    — confirmed live, by actually walking through onboarding end to end:
+    the shared demo baseline was down to one preference immediately after.
+    Fixed by giving the live-mode fallback its own distinct placeholder id
+    (`request_identity.py`'s `_LIVE_FALLBACK_USER_ID = "live-fallback-user"`,
+    not `DEMO_USER_ID`) — this does NOT make "live" mode real per-account
+    isolation (every live user until then still shares that one fallback
+    bucket with every *other* live user), it only guarantees live mode can
+    no longer collide with the demo mode every visitor who never signs in
+    also depends on. Real per-account ids (a signed-in Google account
+    resolved to its own Mongo user document) are still a separate, not-yet-
+    built piece of work — this fix's whole job is making sure that gap can't
+    keep silently destroying the one thing this session has repeatedly had
+    to re-seed by hand.
 
 **Open decision, not yet made**: preferences currently blend into one weighted sum,
 so a strong `avoid_block` penalty and a weak `preferred_hours` reward can trade off in

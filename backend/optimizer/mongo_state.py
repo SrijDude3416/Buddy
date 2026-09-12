@@ -39,7 +39,7 @@ from datetime import datetime, timezone
 import data_loader
 from mongo_loader import DEMO_USER_ID, SEED_SOURCE, get_db
 from request_identity import mongo_user_id, request_mode
-from preferences_store import PreferenceStore
+from preferences_store import PreferenceStore, WEIGHT_MAP, MEAL_WINDOW_DEFAULTS, COMMITMENT_DEFAULTS
 
 
 def save_preferences(store: PreferenceStore, user_id: str = DEMO_USER_ID) -> None:
@@ -79,7 +79,26 @@ def load_preferences(user_id: str = DEMO_USER_ID) -> PreferenceStore:
     already goes through, not a raw dict copy -- so a store loaded from
     Mongo behaves identically to one built live via tool calls (same
     scope-replace semantics if a future caller ever seeds it
-    incrementally, e.g. one entry at a time instead of all at once)."""
+    incrementally, e.g. one entry at a time instead of all at once).
+
+    request_identity.py's own test (test_request_identity.py's
+    test_demo_never_reads_or_writes_mongo) asserts demo mode reaches this
+    function and gets [] back WITHOUT ever calling get_db() -- that
+    guarantee stays exactly as strict as the test demands; this function
+    still never touches Mongo in demo mode. What changed is *what a demo
+    request gets instead* -- see demo_default_preferences() below and
+    apply_and_solve()'s own demo branch, which now feeds that static set in
+    directly rather than calling this function and accepting an empty
+    store. Confirmed live, the wrong way, before this existed: a fresh demo
+    session showed no meal windows, no gym block, nothing, because nothing
+    upstream of this function's demo branch supplied a substitute -- fixing
+    it here (breaking the "never touches Mongo" guarantee to read the
+    seeded, would-be-immutable-anyway baseline back) was the first fix
+    tried, and it broke that test for a real reason: two different
+    teammates' intents actually conflicted (this file's own "demo never
+    touches Mongo, full stop" vs. "demo always shows the same seeded test
+    data"), and reading Mongo satisfies only one of them. Baking the
+    default set into Python instead satisfies both at once."""
     if request_mode.get() == "demo":
         return PreferenceStore()
     user_id = mongo_user_id() or user_id
@@ -87,6 +106,31 @@ def load_preferences(user_id: str = DEMO_USER_ID) -> PreferenceStore:
     store = PreferenceStore()
     for doc in db.preferences.find({"user_id": user_id}):
         store.set(doc["type"], doc["value"], doc["weight"], doc["source"])
+    return store
+
+
+def demo_default_preferences() -> PreferenceStore:
+    """The exact same default set seed_mongo.py's seed_default_preferences()
+    writes to Mongo for DEMO_USER_ID -- reconstructed here as a pure Python
+    constant instead of a Mongo read, so demo mode's "always the same test
+    data" promise holds with a stronger guarantee than "nobody's touched the
+    seed since it was written": there is no live document to drift, no
+    Mongo dependency at all for this half of the demo experience, and
+    load_preferences()'s own "demo never touches Mongo" test stays
+    satisfied by construction. Keep this in sync with
+    seed_default_preferences()'s `defaults` list by hand -- there is no
+    single source both read from, the same tradeoff WEIGHT_MAP's own
+    "hand-sync this table" comment already accepts elsewhere in this
+    project."""
+    store = PreferenceStore()
+    store.set("preferred_hours", {"start": "08:00", "end": "17:00"}, WEIGHT_MAP["preferred_hours"]["moderate"], "onboarding")
+    store.set("min_gap_between_sessions", {"minutes": 15}, 0, "onboarding")
+    store.set("spread_multi_session_tasks", {}, WEIGHT_MAP["spread_multi_session_tasks"]["moderate"], "onboarding")
+    store.set("urgency_priority", {}, WEIGHT_MAP["urgency_priority"]["moderate"], "onboarding")
+    for v in MEAL_WINDOW_DEFAULTS:
+        store.set("meal_window", v, 0, "onboarding")
+    for v in COMMITMENT_DEFAULTS:
+        store.set("commitment", v, 0, "onboarding")
     return store
 
 

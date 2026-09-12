@@ -17,7 +17,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 import data_loader
 import mongo_state
 import mongo_loader
-from request_identity import current_user, mongo_user_id
+from request_identity import current_user, mongo_user_id, request_mode
 import scheduler
 from preferences_store import PreferenceStore, WEIGHT_MAP
 from plan_payload import to_plan_payload
@@ -382,30 +382,40 @@ def register_pipeline(app):
 
     @lru_cache(maxsize=1)
     def initial_plan():
-        # Restores whatever this demo user has saved (mongo_state.py) so a
-        # fresh server start, or a brand-new browser tab with no prior
-        # state, picks up where the last session left off. There is no
-        # hardcoded default preference here anymore -- the "initial
-        # calendar"'s one default (preferred_hours, 08:00-17:00, moderate)
-        # is real seed data now (seed_mongo.py's seed_default_preferences()),
-        # not a magic value materialized only as a side effect of the first
-        # solve. If Mongo genuinely has nothing (a fresh cluster nobody's
-        # seeded yet, or a transient read failure), this solves with an
-        # empty preference set rather than silently re-inventing a default
-        # here -- still governed by api.ALWAYS_ON_DEFAULTS's system-level
-        # behavior, so the demo still produces *a* calendar, just an
-        # honestly unpreferenced one. Printed either way, not silent -- same
-        # policy as data_loader.load_data_preferring_mongo.
+        # Demo mode never reads Mongo preferences at all (mongo_state.py's
+        # load_preferences() returns an empty store for it by design, and
+        # its own test asserts that -- see that function's docstring for the
+        # incident this split resolved). Its "restore whatever was saved"
+        # story instead comes from mongo_state.demo_default_preferences(), a
+        # pure-Python constant matching seed_mongo.py's seeded defaults
+        # exactly (meal windows, the gym commitment, preferred hours,
+        # spacing/urgency/gap) -- no Mongo document to drift, no write path
+        # that could ever touch it, so "the same set of test data every
+        # time" is a guarantee, not a hope. This is also exactly why caching
+        # this function's result per-process (`@lru_cache`) is safe for demo
+        # mode specifically: the input can't change without a code deploy.
+        #
+        # Live mode still restores whatever this account has saved
+        # (mongo_state.py, scoped by mongo_user_id()) so a fresh server
+        # start, or a brand-new browser tab with no prior state, picks up
+        # where the last session left off. If Mongo genuinely has nothing
+        # for this account (never onboarded, or a transient read failure),
+        # this solves with an empty preference set rather than silently
+        # re-inventing a default here -- still governed by
+        # api.ALWAYS_ON_DEFAULTS's system-level behavior, so the calendar is
+        # still produced, just an honestly unpreferenced one. Printed either
+        # way, not silent -- same policy as
+        # data_loader.load_data_preferring_mongo.
         calls = []
         try:
-            saved = mongo_state.load_preferences()
+            saved = mongo_state.demo_default_preferences() if request_mode.get() == "demo" else mongo_state.load_preferences()
             calls = [PreferenceCall(**c) for c in canonical_preferences(saved)]
         except Exception as exc:
-            print(f"[preference_pipeline] Could not load preferences from MongoDB ({exc}); solving with none.")
+            print(f"[preference_pipeline] Could not load preferences ({exc}); solving with none.")
         if calls:
-            print(f"[preference_pipeline] Restored {len(calls)} saved preference(s) from MongoDB.")
+            print(f"[preference_pipeline] Restored {len(calls)} preference(s).")
         else:
-            print("[preference_pipeline] No preferences saved yet (run seed_mongo.py to seed the default); solving with none.")
+            print("[preference_pipeline] No preferences to restore; solving with none.")
         return apply_and_solve(PreferenceBatch(preferences=calls))
 
     @app.get("/preferences/defaults")
