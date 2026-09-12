@@ -17,14 +17,12 @@ that tag is what keeps this from colliding with backend/lib/catalog.js's own
 unrelated synthetic course catalog living in the same `courses` collection,
 and it's how this script cleans up after itself (see --wipe below).
 
-This intentionally does NOT touch `preferences`, `sessions`, `syllabus_data`,
-`users`, or `enrollments` -- CLAUDE.md's boundary is "the optimizer only ever
-reads tasks/preferences/sessions"; courses/tasks are the only two collections
-this project's Python side needs to originate data into. Preferences already
-persist for the lifetime of a running process (preferences_store.py) and are
-round-tripped by the browser between requests in the current buddy/ pipeline
-(preference_pipeline.py) -- a separate, deliberate design worth its own
-conversation before folding into this, not assumed here.
+Also seeds the *one* default preference a brand-new demo user starts with
+(preferred_hours, 08:00-17:00, moderate) -- see seed_default_preferences()
+below for why that moved here instead of staying a hardcoded fallback value
+inside preference_pipeline.py. Still does NOT touch `sessions`,
+`syllabus_data`, `users`, or `enrollments` -- those aren't this project's
+Python side's to originate.
 """
 from __future__ import annotations
 
@@ -34,6 +32,7 @@ from datetime import datetime
 from pathlib import Path
 
 from mongo_loader import DEMO_USER_ID, SEED_SOURCE, ABBR_TO_JS_WEEKDAY, get_db
+from preferences_store import WEIGHT_MAP
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 TEST_DATA_PATH = REPO_ROOT / "test-data" / "schedule_test_data.json"
@@ -104,6 +103,53 @@ def seed(wipe: bool = False) -> None:
 
     print(f"Seeded {course_ops} courses, {task_ops} tasks into {db.name!r} "
           f"(seed_source={SEED_SOURCE!r}, user_id={DEMO_USER_ID!r})")
+
+    seed_default_preferences(db)
+
+
+def seed_default_preferences(db=None) -> None:
+    """The initial calendar's one default preference (preferred_hours,
+    08:00-17:00, moderate) used to be a hardcoded PreferenceCall inside
+    preference_pipeline.py's initial_plan() -- materialized into a real
+    Mongo document only lazily, as a side effect of the very first solve.
+    Now it's real seed data from the start, exactly like courses/tasks:
+    inspectable in the `preferences` collection before the app is ever
+    opened once, and an entirely ordinary document -- nothing about it is
+    special or protected. OpenAI's existing tools already treat it as such
+    once it exists (set_preferred_work_hours replaces it -- it's a
+    singleton per preferences_store.SCOPE_FNS; remove_preference deletes it
+    outright) -- this change is about where that first document originates,
+    not new capability.
+
+    Deliberately does NOT seed ALWAYS_ON_DEFAULTS (api.py: min_gap_between_
+    sessions, spread_multi_session_tasks, urgency_priority) -- those are
+    genuinely different: system-level scheduling behavior PREFERENCE_API.md
+    §6 explicitly keeps OFF the tool surface (no TOOL_TO_INTERNAL entry, no
+    set_/remove_ path reaches them). Seeding them as ordinary `preferences`
+    documents would make them removable/editable by chat, which is exactly
+    the boundary §6 draws on purpose.
+
+    Only inserts if this user has NO preferences at all yet -- unlike
+    courses/tasks (not user-editable, safe to overwrite on every run),
+    preferences ARE user-editable via chat from the moment they exist;
+    reseeding unconditionally would silently discard whatever someone has
+    since asked Buddy to change. Re-run seed_mongo.py as often as you like
+    -- a returning user's customized preferences are never touched."""
+    db = db if db is not None else get_db()  # a pymongo Database disallows bool(); `or` would raise
+    if db.preferences.count_documents({"user_id": DEMO_USER_ID}) > 0:
+        print(f"Preferences already exist for user_id={DEMO_USER_ID!r}; leaving them as-is.")
+        return
+    db.preferences.insert_one(
+        {
+            "user_id": DEMO_USER_ID,
+            "type": "preferred_hours",
+            "value": {"start": "08:00", "end": "17:00"},
+            "weight": WEIGHT_MAP["preferred_hours"]["moderate"],
+            "source": "onboarding",
+            "source_message_id": None,
+        }
+    )
+    print(f"Seeded default preferred_hours (08:00-17:00, moderate) for user_id={DEMO_USER_ID!r}")
 
 
 if __name__ == "__main__":

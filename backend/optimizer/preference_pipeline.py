@@ -185,22 +185,31 @@ def register_pipeline(app):
 
     @lru_cache(maxsize=1)
     def initial_plan():
-        # Prefers whatever this demo user last saved (mongo_state.py) so a
+        # Restores whatever this demo user has saved (mongo_state.py) so a
         # fresh server start, or a brand-new browser tab with no prior
-        # state, picks up where the last session left off instead of
-        # always resetting to a generic 8-5 default. Printed either way,
-        # not silent -- same policy as data_loader.load_data_preferring_mongo.
+        # state, picks up where the last session left off. There is no
+        # hardcoded default preference here anymore -- the "initial
+        # calendar"'s one default (preferred_hours, 08:00-17:00, moderate)
+        # is real seed data now (seed_mongo.py's seed_default_preferences()),
+        # not a magic value materialized only as a side effect of the first
+        # solve. If Mongo genuinely has nothing (a fresh cluster nobody's
+        # seeded yet, or a transient read failure), this solves with an
+        # empty preference set rather than silently re-inventing a default
+        # here -- still governed by api.ALWAYS_ON_DEFAULTS's system-level
+        # behavior, so the demo still produces *a* calendar, just an
+        # honestly unpreferenced one. Printed either way, not silent -- same
+        # policy as data_loader.load_data_preferring_mongo.
+        calls = []
         try:
             saved = mongo_state.load_preferences()
-            if saved.list_active():
-                calls = [PreferenceCall(**c) for c in canonical_preferences(saved)]
-                print(f"[preference_pipeline] Restored {len(calls)} saved preference(s) from MongoDB.")
-                return apply_and_solve(PreferenceBatch(preferences=calls))
+            calls = [PreferenceCall(**c) for c in canonical_preferences(saved)]
         except Exception as exc:
-            print(f"[preference_pipeline] Could not load saved preferences from MongoDB ({exc}); using default.")
-        return apply_and_solve(PreferenceBatch(preferences=[PreferenceCall(
-            name="set_preferred_work_hours", arguments={"start_time": "08:00", "end_time": "17:00", "strength": "moderate"},
-        )]))
+            print(f"[preference_pipeline] Could not load preferences from MongoDB ({exc}); solving with none.")
+        if calls:
+            print(f"[preference_pipeline] Restored {len(calls)} saved preference(s) from MongoDB.")
+        else:
+            print("[preference_pipeline] No preferences saved yet (run seed_mongo.py to seed the default); solving with none.")
+        return apply_and_solve(PreferenceBatch(preferences=calls))
 
     @app.get("/preferences/defaults")
     def defaults():
