@@ -500,20 +500,20 @@ def build_and_solve(
         )
 
     # --- Same-task symmetry breaking: decompose.py splits one task's total
-    # duration into fully-interchangeable equal-length chunks (hw3__s1..s8,
-    # same title, same duration, same due_at) -- nothing distinguishes chunk
-    # 3 from chunk 6 except the label, so without ordering, CP-SAT's search
-    # treats every one of the 8! ways to assign them to the same 8 slots as a
-    # DIFFERENT candidate solution worth comparing, even though they all
-    # score identically. Two adjacent-pair constraints per task collapse that
-    # entire permutation group down to the one decompose.py already
-    # generated: keep chunks in their original index order whenever more
-    # than one of a task's chunks is present, and require them to fill
+    # duration into chunks (hw3__s1..s8, same title, same due_at) that are
+    # only TRULY interchangeable when they're also the same length -- nothing
+    # distinguishes chunk 3 from chunk 6 of equal size except the label, so
+    # without ordering, CP-SAT's search treats every one of the k! ways to
+    # assign k same-length chunks to the same k slots as a DIFFERENT
+    # candidate solution worth comparing, even though they all score
+    # identically. Two adjacent-pair constraints per RUN of equal-length
+    # chunks collapse that permutation group down to the one decompose.py
+    # already generated: keep chunks in their original index order whenever
+    # more than one of a run is present, and require them to fill
     # front-to-back (a later chunk can't be present unless the one before it
-    # is too, so presence never "skips" an earlier chunk while placing a
-    # later one). Neither constraint says anything about WHERE a chunk
-    # lands, only which one is "first" among however many end up scheduled
-    # -- composes cleanly with spread_multi_session_tasks instead of fighting
+    # is too). Neither constraint says anything about WHERE a chunk lands,
+    # only which one is "first" among however many end up scheduled -- so it
+    # composes cleanly with spread_multi_session_tasks instead of fighting
     # it. Grouped by iterating `sessions` (decompose.py's own s1..sN order,
     # already the case since decompose_all appends one task's chunks
     # contiguously) rather than re-sorting by id, so a locked/dropped middle
@@ -522,12 +522,30 @@ def build_and_solve(
     # Review sessions pass through this loop too but are unaffected: each
     # occurrence's task_id is unique to that occurrence, so every review
     # "group" has exactly one member and the zip below is empty for it.
+    #
+    # The duration check below matters for two real cases, not a hypothetical
+    # one: decompose_task's own default equal-split already produces a
+    # shorter LAST chunk whenever the total doesn't divide evenly (e.g. 150
+    # minutes into 3 chunks -> 60/60/30, not 50/50/50 -- see
+    # _round_to_slot's rounding-up rule), and add_task's `session_plan` can
+    # hand decompose_task chunks of genuinely different sizes on purpose
+    # (e.g. "two 2-hour sessions then a 30-minute review"). Neither case is
+    # actually symmetric: forcing the odd-sized chunk into a fixed position
+    # relative to its neighbors isn't a free search-space cut, it's a real
+    # constraint that could exclude a legitimately better placement (the
+    # short review landing FIRST, say, if that's what the objective actually
+    # prefers) -- so a pair only gets the ordering constraint when their
+    # durations genuinely match.
+    duration_by_id: dict[str, int] = {}
     task_groups: dict[str, list[str]] = {}
     for sess in sessions:
         if sess.id in session_vars:
             task_groups.setdefault(sess.task_id, []).append(sess.id)
+            duration_by_id[sess.id] = sess.duration_min
     for group_ids in task_groups.values():
         for a_id, b_id in zip(group_ids, group_ids[1:]):
+            if duration_by_id[a_id] != duration_by_id[b_id]:
+                continue  # not interchangeable -- ordering them would be a real constraint, not a free symmetry cut
             _, a_presence, a_start = session_vars[a_id]
             _, b_presence, b_start = session_vars[b_id]
             model.Add(a_start < b_start).OnlyEnforceIf([a_presence, b_presence])

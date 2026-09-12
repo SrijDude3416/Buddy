@@ -23,11 +23,14 @@ against it.
 
 A student's calendar is produced by a CP-SAT solver (Google OR-Tools), not by a
 language model. The model never edits the schedule and never touches solver code —
-every tool call below does exactly one thing: it produces one typed
+almost every tool call below does exactly one thing: it produces one typed
 `{type, value, weight}` preference object, which a fixed, deterministic Python
 compiler (never the model) turns into either a hard rule or a weighted term the solver
-optimizes against. A chat message can trigger zero, one, or several tool calls, each
-landing in the `preferences` collection. **A re-solve is meant to follow automatically
+optimizes against. (The two exceptions, `add_task`/`remove_task`, create or delete a
+`tasks` document instead of a preference — see §5's intro to that pair for how the
+same "never touches the schedule directly" boundary still holds for them.) A chat
+message can trigger zero, one, or several tool calls, each landing in `preferences`
+or `tasks`. **A re-solve is meant to follow automatically
 — as a backend-owned side effect of the write, not as something the model asks for —
 but that orchestration doesn't exist yet.** §2 specifies the one piece of it that does:
 the actual function that runs a solve, and the contract its HTTP wrapper will expose.
@@ -308,11 +311,32 @@ Use `list_current_preferences` whenever you're not certain what's already active
 before a `remove_preference` call, or when the student asks what's currently shaping
 their schedule.
 
+None of this applies to `add_task`/`remove_task` — a task isn't a preference type,
+so it has no singleton/accumulating scope to speak of. Every `add_task` call
+creates a genuinely new task (there's no "same scope, so replace it" case the way
+`set_daily_workload_limit` has); `remove_task` deletes by exact `task_id`, not by
+type+match. The current task list lives in the `tasks` array already provided in
+context on every turn, which plays the same "don't guess, check first" role
+`list_current_preferences` plays for preferences.
+
 ## 5. Tools
 
 Every tool in this section is implemented and tested against real data. §9 covers
 what's designed but not wired up yet — don't call those; they exist in the catalog
-below intentionally and only these eleven do.
+below intentionally and only these thirteen do.
+
+Eleven of these are preference tools, exactly as §1 describes: one typed
+`{type, value, weight}` object, landing in `preferences`, compiled by a
+deterministic Python function. `add_task`/`remove_task` are a second, narrower
+category — they create or delete a real `tasks` document instead (the same kind
+of document `test-data/schedule_test_data.json` seeds). The "AI never touches
+solver code or the schedule directly" rule still applies exactly as written: the
+model only ever supplies task-level facts (course, deadline, how much work,
+optionally how to structure it into sessions) and the solver still decides every
+session's actual time. See their own sections below for the distinction that
+matters most in practice — `add_task`'s `session_plan` lets a caller ask for a
+specific session structure, which is *not* the same thing as choosing when that
+structure happens.
 
 ### `set_preferred_work_hours`
 **Singleton.** Sets the one daily window flexible work is rewarded for landing in.
@@ -521,6 +545,75 @@ explicitly locked something meant it as non-negotiable, and a real conflict
 should surface honestly (same as `protect_time_block`), not vanish without
 telling anyone.
 
+### `add_task`
+**Not a preference tool.** Creates a real `tasks` document — a new assignment for
+the solver to schedule sessions for, the same kind of thing
+`test-data/schedule_test_data.json` seeds. Call it whenever the student describes
+real upcoming work that isn't already on their calendar (a problem set, an essay,
+exam prep, a reading) with at least a course and a deadline.
+
+The solver still decides every session's actual time — exactly like it does for
+every pre-existing task. What this tool *does* let a caller influence, deliberately,
+is *how the work is broken into sessions* — CLAUDE.md's decompose.py otherwise
+always guesses (roughly equal chunks, never more than an hour each). That guess is
+still the default; `session_plan` is how a caller overrides it for one specific
+task.
+
+| Parameter | Type | Required | Notes |
+|---|---|---|---|
+| `title` | string, 1-120 chars | yes | e.g. `"Problem Set 4"` — a name, not an instruction |
+| `course_id` | string | yes | must be a real id from the courses already in context; never guess one |
+| `due_date` | `"YYYY-MM-DD"` | yes | resolve relative language ("due Friday", "in 5 days") against `today_date` in context, never against an assumed date |
+| `due_time` | `"HH:MM"`, 24-hour | no, default `"23:59"` | a generic homework-portal deadline when the student doesn't say |
+| `est_duration_min` | int, 15-2400 | yes, unless `session_plan` is given | total work time; when `session_plan` is given this is *derived* (the sum) — omit it rather than compute the sum yourself |
+| `splittable` | bool | no, default `true` | `false` only for something that must happen in one sitting (a timed practice exam) |
+| `session_plan` | list of ints (minutes), 1-12 entries, each 15-240 | no | an explicit, ordered session breakdown — see below |
+
+**`session_plan` is the "more creative structuring" this tool exists for.** Use it
+*only* when the student is explicit about session count/length — "two 2-hour
+sessions and a 30-minute review," "three 45-minute sessions," "I'll do it in one
+sitting." A plain duration-and-deadline statement with no structure preference
+should leave `session_plan` out entirely and let the default split handle it.
+Each entry can run up to 4 hours — deliberately larger than decompose.py's ~1-hour
+default cap, since asking for `session_plan` at all is exactly how a student
+requests a longer deep-work block the default heuristic would never produce on
+its own.
+
+**Example, default split** — *"I have a reading for 15-151 due Friday, should
+take about an hour and a half"*
+→ `add_task(title="Reading", course_id="math-found", due_date="2026-09-18", est_duration_min=90)`
+→ decompose.py decides the session count on its own (here, one 90-minute session
+— under the ~1-hour split threshold's next-tier rounding, this is a judgment
+call the heuristic already makes for every task; nothing about `add_task` changes
+that logic).
+
+**Example, explicit `session_plan`** — *"Add a research paper for 88-230, due in
+4 days, about 4.5 hours total — I want two 90-minute sessions and then a
+90-minute session to finish it up"*
+→ `add_task(title="Research Paper", course_id="hum-intel", due_date="2026-09-16", session_plan=[90, 90, 90])`
+→ `est_duration_min` is derived as 270; the solver places three real 90-minute
+sessions wherever they fit best, in that relative order (CLAUDE.md's same-task
+symmetry-breaking only orders sessions of *equal* length against each other, so
+three identical 90-minute chunks get the search-space benefit; a plan like
+`[120, 120, 30]` would let the shorter chunk land wherever the solver actually
+prefers, not force it into a fixed position).
+
+### `remove_task`
+**Not a preference tool either.** Deletes a task entirely — not a preference
+about it, the task itself and every session it would have produced. Works for
+any task visible in the current tasks list already provided in context, not only
+ones `add_task`'d earlier in the same conversation — a real course assignment
+that got cancelled or extended is just as valid a target. Always confirm which
+task in plain language if there's any doubt which one is meant; this isn't
+reversible from chat.
+
+| Parameter | Type | Required | Notes |
+|---|---|---|---|
+| `task_id` | string | yes | the exact task `_id` from context or from this conversation's own `add_task` result — never guessed |
+
+**Example** — *"Actually cancel that research paper task, I added it by mistake"*
+→ `remove_task(task_id="chat-b25128d90e")`
+
 ### `remove_preference`
 Deletes one active preference. See §4 for the persistence model this depends on.
 
@@ -618,10 +711,15 @@ today they're fixed constants in `backend/optimizer/decompose.py`, the same for 
 user. Calling a tool for either would silently do nothing, so none exists in the
 catalog above. Noted here so whoever wires this next knows exactly what's missing:
 
-- **Focus-session length** ("I like short 30-minute bursts" / "I do better in long
-  2-hour blocks"). `decompose.py`'s `MAX_SESSION_MIN` (currently a flat 60, "never
-  work on one subject for more than an hour") would need to become a per-user input
-  to the task→session splitting step instead of a module constant.
+- **A GLOBAL focus-session-length default** ("I like short 30-minute bursts" /
+  "I do better in long 2-hour blocks," stated as a general rule rather than about
+  one specific task). `add_task`'s `session_plan` now covers the *per-task* version
+  of this exactly — see its section above — but there's still no way to change
+  `decompose.py`'s `MAX_SESSION_MIN`/`MIN_SESSION_MIN` (currently a flat 60/30) for
+  every task at once; a caller has to restate `session_plan` on each `add_task`
+  call, and it does nothing for tasks that already existed before this tool did.
+  Would need those constants to become a per-user input to the task→session
+  splitting step instead of module constants.
 - **Turning off the after-class review sessions** ("I take good notes already, I
   don't need a review block after every lecture"). `generate_review_sessions()`
   currently runs unconditionally for every course; it would need a per-student flag.
@@ -666,9 +764,15 @@ but that's an expectation, not something re-verified at 7 days yet.
 
 `remove_preference` and `list_current_preferences` aren't preference *types* — their
 own small API surface (find/delete by type+scope, list by student) lives in
-`preferences_store.py`'s `PreferenceStore`, not `compile_all()`.
+`preferences_store.py`'s `PreferenceStore`, not `compile_all()`. `add_task` and
+`remove_task` aren't preference types either, but for a different reason: they
+never touch `PreferenceStore` at all — they read/write `data_loader.Task`
+objects directly (`api.py`'s `_build_task_from_input`/`_task_response`,
+`mongo_state.py`'s `save_new_tasks`/`delete_tasks`), the `tasks` collection's own
+surface, parallel to but entirely separate from the preferences one this table
+describes.
 
-`POST /solve`, all eleven tools under `/tools/`, and `GET /plan` are implemented in
+`POST /solve`, all thirteen tools under `/tools/`, and `GET /plan` are implemented in
 `backend/optimizer/api.py` (models in `api_models.py`, persistence in
 `preferences_store.py`) and verified end-to-end against real requests — including the
 error paths (`409` ambiguous removal, `404` nothing to remove, `422` validation). Still

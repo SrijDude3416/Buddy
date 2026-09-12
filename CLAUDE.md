@@ -547,6 +547,73 @@ actual, running code — no longer just a sketch):
   live: the same cold 14-day solve that used to burn the full 15s (FEASIBLE,
   0.09% gap) now finishes around 9-10s at OPTIMAL status once the achieved gap
   clears the 0.5% bar.
+- **Chat can create and delete real assignments now (`add_task`/`remove_task`,
+  PREFERENCE_API.md), and can ask for a specific session breakdown per task
+  (`session_plan`) instead of always taking `decompose.py`'s equal-split guess.**
+  These two tools are deliberately NOT preference tools — they never touch
+  `PreferenceStore`, they create/delete a real `data_loader.Task` (the same kind
+  `seed_mongo.py` imports from `test-data/schedule_test_data.json`). The "AI
+  never touches solver code or the schedule directly" boundary still holds
+  exactly: the model supplies task-level facts (course, deadline, how much
+  work, optionally `session_plan`), CP-SAT still decides every session's actual
+  time — asking for `session_plan=[120, 120, 30]` is a request about
+  *structure*, not about *placement*.
+  - `Task.session_plan: list[int] | None` (new field, `data_loader.py`) is an
+    explicit, ordered list of session lengths in minutes. When set,
+    `decompose_task` (`decompose.py`) builds sessions directly from it instead
+    of computing the equal-split guess — deliberately NOT bounded by
+    `MAX_SESSION_MIN`/`MIN_SESSION_MIN` (60/30), since the whole point of
+    asking for this is permission to exceed/undercut the default (a 2-hour
+    deep-work block, a 15-minute review).
+  - **A `session_plan` with heterogeneous chunk sizes exposed a real
+    imprecision in the same-task symmetry-breaking constraint added earlier
+    this session (see the `relative_gap_limit` bullet's neighbor above).**
+    That constraint originally paired up ALL of one task's sessions
+    unconditionally, on the assumption they're fully interchangeable — true
+    for `decompose_task`'s default equal split MOST of the time, but not
+    always even there (the last chunk of an uneven split is already shorter,
+    e.g. 150min/3 -> 60/60/30) and definitely not true for an intentionally
+    uneven `session_plan`. Forcing a fixed relative order onto two
+    differently-sized chunks isn't a free search-space cut, it's a real
+    constraint that could exclude a legitimately better placement (the short
+    review landing first, if that's what the objective actually prefers).
+    Fixed by only pairing consecutive sessions of the SAME duration
+    (`scheduler.py`'s symmetry-breaking loop now checks `duration_by_id[a] ==
+    duration_by_id[b]` before adding the ordering constraint) — correct for
+    both the pre-existing equal-split case and the new heterogeneous one,
+    not a behavior change for the common case where every chunk really is
+    the same length.
+  - **Tasks added via chat need a different durability strategy than
+    preferences.** `save_preferences` can safely delete-then-reinsert a
+    user's ENTIRE preference set on every solve because
+    `PreferenceStore.list_active()` already fully reconstructs it from
+    memory — there's no equivalent full in-memory reconstruction for tasks
+    (most of `api.DATA.tasks` came from `seed_mongo.py`'s original import,
+    and round-tripping an existing task back through `data_loader.Task`'s
+    single `title` field would collapse Mongo's own
+    `display_title`/`source_assignment` distinction for documents this
+    feature never touched). `mongo_state.save_new_tasks`/`delete_tasks`
+    instead write ONLY the specific tasks a request actually added or
+    removed, leaving every other task's document untouched — same
+    "durable only after a successful solve" guarantee preferences already
+    have, via smaller, surgical writes instead of one replace-all.
+  - **`remove_task` needs deferred-commit semantics the bare `/tools/`
+    reference endpoint doesn't** — `api.DATA.tasks` is process-global and
+    shared across every request, so a pipeline-isolated request can't
+    immediately mutate it (the same reason `preferences` uses a fresh
+    `PreferenceStore` per request). `preference_pipeline.py` searches a
+    per-request `pending_tasks` list first (a task added earlier in the SAME
+    request — nothing durable to undo yet); if not found there, it stages the
+    id in `pending_removed_ids` and only actually removes it from
+    `api.DATA.tasks`/Mongo after the solve succeeds. `add_task` doesn't need
+    this split — appending to a per-request list is safe either way, so the
+    pipeline reuses `api.add_task` directly with `pending_tasks` injected in
+    place of `api.DATA.tasks`.
+  - The chat layer (`buddy/lib/chatgpt.ts`) now also passes `today_date`
+    (resolved from `plan.windowStart`) and a trimmed `tasks` list into
+    OpenAI's context on every turn — `add_task` needs a real "today" to
+    resolve relative due-date language ("due Friday," "in 5 days") against,
+    and `remove_task` needs real task ids to target without guessing.
 
 **Open decision, not yet made**: preferences currently blend into one weighted sum,
 so a strong `avoid_block` penalty and a weak `preferred_hours` reward can trade off in

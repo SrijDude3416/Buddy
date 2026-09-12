@@ -36,7 +36,8 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from mongo_loader import DEMO_USER_ID, get_db
+import data_loader
+from mongo_loader import DEMO_USER_ID, SEED_SOURCE, get_db
 from preferences_store import PreferenceStore
 
 
@@ -110,6 +111,68 @@ def log_optimizer_run(
             "created_at": datetime.now(timezone.utc),
         }
     )
+
+
+# --------------------------------------------------------------------------
+# Tasks added/removed via chat (add_task/remove_task, PREFERENCE_API.md).
+# Unlike preferences, `tasks` is NOT replace-all-on-every-write here:
+# save_preferences() can safely delete-then-reinsert the WHOLE set every
+# request because store.list_active() already fully reconstructs it, but
+# there is no equivalent full in-memory reconstruction for tasks -- most of
+# `DATA.tasks` came from seed_mongo.py's original test-data.json import, and
+# collapsing each one back through data_loader.Task's single `title` field
+# would flatten Mongo's own display_title/source_assignment distinction for
+# documents this feature never touched. So these two write ONLY the specific
+# tasks a request actually added or removed, in place, leaving every other
+# task's Mongo document exactly as it already was -- the surgical
+# equivalent of preferences' "only durable after a successful solve" rule
+# (both are called from preference_pipeline.py's apply_and_solve, only
+# after `result.status_name` is FEASIBLE/OPTIMAL, same as
+# save_preferences()).
+# --------------------------------------------------------------------------
+
+
+def save_new_tasks(tasks: list[data_loader.Task], user_id: str = DEMO_USER_ID) -> None:
+    """Inserts each newly chat-added task as its own real `tasks` document --
+    `seed_source` matches every other document this project's Python side
+    writes (mongo_loader.load_data()'s query filters on it), so a server
+    restart picks these back up exactly like the original test-data.json
+    import. `session_plan` travels through even when None -- mongo_loader.
+    load_data() reads it back with `.get("session_plan")`, so an explicit
+    breakdown survives a restart too, not just the same server process."""
+    if not tasks:
+        return
+    db = get_db()
+    now = datetime.now(timezone.utc)
+    db.tasks.insert_many(
+        [
+            {
+                "_id": t.id,
+                "seed_source": SEED_SOURCE,
+                "user_id": user_id,
+                "course_id": t.course_id,
+                "source_assignment": t.title,
+                "display_title": None,
+                "due_at": t.due_at,
+                "est_duration_min": t.est_duration_min,
+                "splittable": t.splittable,
+                "status": t.status,
+                "priority_weight": 1.0,
+                "actual_time_logged_min": None,
+                "session_plan": t.session_plan,
+                "source": "chat",
+                "created_at": now,
+            }
+            for t in tasks
+        ]
+    )
+
+
+def delete_tasks(task_ids: set[str] | list[str], user_id: str = DEMO_USER_ID) -> None:
+    if not task_ids:
+        return
+    db = get_db()
+    db.tasks.delete_many({"user_id": user_id, "_id": {"$in": list(task_ids)}})
 
 
 # --------------------------------------------------------------------------

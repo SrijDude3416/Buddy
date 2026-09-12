@@ -80,6 +80,32 @@ def decompose_task(task: Task, course_code: str = "") -> list[Session]:
     if course_code:
         title = f"{course_code} {title}"
 
+    if task.session_plan:
+        # Explicit, caller-authored breakdown (add_task's session_plan --
+        # PREFERENCE_API.md's add_task) overrides the equal-split guess
+        # below entirely: someone already decided how many sessions and how
+        # long each one is (e.g. "two 2-hour sessions then a 30-minute
+        # review"), so there's nothing left for this function to compute
+        # except the one invariant every session in this file shares --
+        # round each length UP to the slot grid, never down (same reason
+        # _round_to_slot exists at all: underestimating a real sitting is an
+        # error, overestimating is harmless slack). MAX_SESSION_MIN/
+        # MIN_SESSION_MIN don't apply here on purpose -- the whole point of
+        # an explicit plan is permission to exceed the default one-hour cap
+        # (a deliberate 2-hour deep-work block) or go below the default
+        # 30-minute floor (a deliberate quick 15-minute review).
+        return [
+            Session(
+                id=f"{task.id}__s{i + 1}",
+                task_id=task.id,
+                course_id=task.course_id,
+                title=title,
+                duration_min=_round_to_slot(minutes),
+                due_at=task.due_at,
+            )
+            for i, minutes in enumerate(task.session_plan)
+        ]
+
     if not task.splittable or duration <= MAX_SESSION_MIN:
         return [
             Session(

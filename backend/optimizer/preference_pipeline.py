@@ -22,7 +22,8 @@ from plan_payload import to_plan_payload
 
 ToolName = Literal["set_preferred_work_hours", "set_daily_workload_limit", "protect_time_block",
                    "set_break_habits", "set_task_spacing", "set_urgency_emphasis", "set_minimum_gap",
-                   "set_meal_window", "set_commitment", "remove_preference", "list_current_preferences"]
+                   "set_meal_window", "set_commitment", "add_task", "remove_task",
+                   "remove_preference", "list_current_preferences"]
 
 
 class PreferenceCall(BaseModel):
@@ -146,11 +147,55 @@ def register_pipeline(app):
         "remove_preference": (models.RemovePreferenceIn, api.remove_preference),
     }
 
-    def execute(call, store):
+    def _pipeline_remove_task(call, pending_tasks, pending_removed_ids):
+        # Different from api.remove_task (used as-is by the bare /tools/*
+        # surface): that one mutates whatever list it's given immediately,
+        # matching its "no isolation" character. This pipeline can't do that
+        # for an already-committed task -- api.DATA.tasks is process-global,
+        # shared across every request, and the whole point of building this
+        # per-request is that a cancelled/failed request leaves no trace
+        # (same guarantee `store` already gives preferences). So: a task
+        # added earlier in THIS SAME request is still only in `pending_tasks`
+        # (nothing durable to undo) and gets removed there directly; an
+        # already-committed task instead gets its id staged in
+        # `pending_removed_ids`, actually removed from api.DATA.tasks/Mongo
+        # only after this request's solve succeeds (see apply_and_solve's
+        # own post-solve block).
+        try:
+            body = models.RemoveTaskIn.model_validate(call.arguments)
+        except ValidationError as exc:
+            raise HTTPException(422, {"message": "Invalid arguments for remove_task", "errors": exc.errors(include_context=False)})
+        match = next((t for t in pending_tasks if t.id == body.task_id), None)
+        if match is not None:
+            pending_tasks.remove(match)
+        else:
+            match = next((t for t in api.DATA.tasks if t.id == body.task_id and t.id not in pending_removed_ids), None)
+            if match is None:
+                raise HTTPException(404, f"no task with id {body.task_id!r}")
+            pending_removed_ids.add(body.task_id)
+        return models.TaskCallResponse(
+            action="removed", task_id=match.id, title=match.title, course_id=match.course_id,
+            due_at=match.due_at, est_duration_min=match.est_duration_min,
+            splittable=match.splittable, session_plan=match.session_plan, resolve=None,
+        ).model_dump()
+
+    def execute(call, store, pending_tasks, pending_removed_ids):
         if call.name == "list_current_preferences":
             if call.arguments:
                 raise HTTPException(422, "list_current_preferences takes no arguments")
             return [e.model_dump() for e in api.list_current_preferences(store=store)]
+        if call.name == "add_task":
+            try:
+                body = models.AddTaskIn.model_validate(call.arguments)
+            except ValidationError as exc:
+                raise HTTPException(422, {"message": "Invalid arguments for add_task", "errors": exc.errors(include_context=False)})
+            if body.course_id not in api.DATA.courses:
+                raise HTTPException(422, f"Unknown course_id {body.course_id!r}")
+            new_task = api._build_task_from_input(body)
+            pending_tasks.append(new_task)
+            return api._task_response("created", new_task, resolve=False, store=store).model_dump()
+        if call.name == "remove_task":
+            return _pipeline_remove_task(call, pending_tasks, pending_removed_ids)
         model, handler = handlers[call.name]
         try:
             body = model.model_validate(call.arguments)
@@ -161,13 +206,18 @@ def register_pipeline(app):
     @app.post("/preferences/operations")
     def apply_and_solve(body: PreferenceBatch):
         store = PreferenceStore()
+        # Per-request-isolated, exactly like `store` -- see _pipeline_remove_task's
+        # own comment for why removal in particular can't just mutate
+        # api.DATA.tasks directly the way api.py's bare endpoints do.
+        pending_tasks: list[data_loader.Task] = []
+        pending_removed_ids: set[str] = set()
         for call in body.preferences:
-            if call.name in ("remove_preference", "list_current_preferences"):
+            if call.name in ("remove_preference", "list_current_preferences", "add_task", "remove_task"):
                 raise HTTPException(422, "Saved preferences must contain only active preference setters")
-            execute(call, store)
+            execute(call, store, pending_tasks, pending_removed_ids)
         applied = []
         for call in body.operations:
-            output = execute(call, store)
+            output = execute(call, store, pending_tasks, pending_removed_ids)
             applied.append({"name": call.name, "arguments": call.arguments,
                             "endpoint": f"/tools/{call.name}",
                             "method": "GET" if call.name == "list_current_preferences" else "POST",
@@ -196,7 +246,14 @@ def register_pipeline(app):
             courses={k: c for k, c in available.items() if k in selected},
             # Only startup-loaded courses have tasks. An overridden course with no
             # tasks contributes its class blocks and nothing else -- see CourseOverride.
-            tasks=[t for t in api.DATA.tasks if t.course_id in selected],
+            # pending_removed_ids/pending_tasks (add_task/remove_task, this
+            # request's operations) are folded in here -- BEFORE the solve,
+            # not after -- so a just-added task is actually schedulable this
+            # same solve and a just-removed one genuinely stops competing for
+            # space, matching every other operation's "applies to this solve"
+            # contract.
+            tasks=[t for t in api.DATA.tasks if t.course_id in selected and t.id not in pending_removed_ids]
+                  + [t for t in pending_tasks if t.course_id in selected],
         )
         # Past-preserving lock: whatever the previous cached plan showed for
         # flexible sessions already behind "now" gets fed into THIS solve as
@@ -283,12 +340,26 @@ def register_pipeline(app):
                 status=result.status_name, inputs_snapshot=inputs_snapshot,
                 objective_value=None, best_bound=None, gap=None, solve_seconds=seconds,
             ))
-            raise HTTPException(409, {"message": "The optimizer could not find a usable schedule. Previous preferences and calendar are unchanged.", "status": result.status_name})
+            raise HTTPException(409, {"message": "The optimizer could not find a usable schedule. Previous preferences, tasks, and calendar are unchanged.", "status": result.status_name})
 
         plan = to_plan_payload(result, data, api.WINDOW_START, api.WINDOW_DAYS, preferences, seconds)
         response = {"preferences": preferences, "preference_calls": applied, "plan": plan}
 
         _try("preferences save", lambda: mongo_state.save_preferences(store))
+        # Tasks become durable only now, after a successful solve -- same
+        # "no partial commits on a cancelled/failed request" guarantee
+        # preferences already have, just via two smaller, surgical writes
+        # instead of one replace-all (mongo_state.save_new_tasks's own
+        # docstring explains why tasks can't safely use preferences' own
+        # delete-then-reinsert-everything pattern). api.DATA.tasks is
+        # process-global and read by every other request from this point
+        # on -- mutated here, not any earlier, for exactly that reason.
+        if pending_removed_ids:
+            api.DATA.tasks[:] = [t for t in api.DATA.tasks if t.id not in pending_removed_ids]
+            _try("tasks remove (mongo)", lambda: mongo_state.delete_tasks(pending_removed_ids))
+        if pending_tasks:
+            api.DATA.tasks.extend(pending_tasks)
+            _try("tasks save (mongo)", lambda: mongo_state.save_new_tasks(pending_tasks))
         _try("optimizer_runs log", lambda: mongo_state.log_optimizer_run(
             status=result.status_name, inputs_snapshot=inputs_snapshot,
             objective_value=result.objective_value, best_bound=result.best_bound,
