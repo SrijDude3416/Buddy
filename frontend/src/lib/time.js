@@ -96,6 +96,24 @@ export function hasEnded(iso, now = new Date()) {
   return !!iso && new Date(iso).getTime() <= now.getTime();
 }
 
+/**
+ * How many of a span's own minutes have already happened, real wall-clock
+ * time — 0 before it starts, the full duration once it's ended, and a
+ * prorated partial while it's currently in progress. Same "already
+ * happened" idea as `hasEnded`, just fractional instead of boolean: a sum
+ * across a week's blocks (ClassLegend's own bar) should credit a session
+ * that's half over with half its minutes, not wait for it to fully end
+ * before counting anything.
+ */
+export function elapsedMinutes(startIso, endIso, now = new Date()) {
+  const start = new Date(startIso).getTime();
+  const end = new Date(endIso).getTime();
+  const t = now.getTime();
+  if (t <= start) return 0;
+  if (t >= end) return Math.round((end - start) / 60000);
+  return Math.round((t - start) / 60000);
+}
+
 /** "135" -> "2hr 15min" — a raw minute count read out as hours+minutes, the
  * way a person actually thinks about a chunk of their week, not as a bare
  * number of minutes. Drops the half that's zero rather than printing

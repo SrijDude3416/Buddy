@@ -260,19 +260,37 @@ implementation (none of it is wired to a real backend yet):
           drives the line, `Block`'s auto-cross-out (below), and `ClassLegend`'s bars,
           instead of each day column keeping its own separate `setInterval` (up to
           seven running at once in week view, all computing the same minute).
-        - **The class key's progress bar is real elapsed clock time this week, not a
-          completion count.** Used to be `(completed sessions) / (total sessions)`,
-          computed once in `adapters.js` (a static, read-once function with no live
-          clock to check against). Now computed directly in `ClassLegend.jsx`, which
-          has one: for every block carrying that class's color in the currently-viewed
-          week (fixed lecture time + flexible sessions, matching what the panel's own
-          `min` stat always summed) — `elapsed = Σ duration where hasEnded(end, now)`,
+        - **The class key's progress bar is real elapsed clock time, not a completion
+          count.** Used to be `(completed sessions) / (total sessions)`, computed once
+          in `adapters.js` (a static, read-once function with no live clock to check
+          against). Now computed directly in `ClassLegend.jsx`, which has one: for
+          every block carrying that class's color in the currently-viewed *period*
+          (fixed lecture time + flexible sessions, matching what the panel's own `min`
+          stat always summed) — `elapsed = Σ elapsedMinutes(start, end, now)`,
           `total = Σ duration`, bar width = `elapsed / total`. A class can read well
-          through its week without a single session manually checked off; the bar
+          through its period without a single session manually checked off; the bar
           tracks the clock, the same `completed`-vs-`isPast` distinction TaskDetail and
           CalendarView's own blocks already make, just aggregated to the class level
           instead of per session. `adapters.js`'s old `goals[].progress` field is gone
           — it has no reader left now that the one that mattered computes its own.
+        - **`elapsedMinutes` (`time.js`) is fractional, not the boolean `hasEnded`
+          this bar first shipped with** — a block currently in progress now credits its
+          proportional share (20 of a 60-minute session already happened reads as 20,
+          not 0 just because the session hasn't ended), the same way a progress bar
+          anywhere else in the app would be expected to move continuously rather than
+          jump only at each block's end. `hasEnded` itself is untouched and still what
+          drives the actual cross-out boolean (TaskDetail/CalendarView) — an
+          in-progress session should read as "not yet done," a hard true/false, not
+          partially struck through.
+        - **The period tallied is whatever the calendar itself is showing, not always
+          the week** — `PlanPage` computes `legendOffsets`/`legendPeriodLabel` from the
+          same `range` toggle (`'week'` | `'day'`) `CalendarView` already reads: the
+          visible week's offsets in Week view, just the one selected day's offset in
+          Day view, with the label following (`"this week"` vs. the selected day's own
+          label, e.g. `"sat"` — the same weekday-abbreviation form the calendar's own
+          day-column headers already use for real backend data, not a separately
+          invented string). `ClassLegend` itself has no opinion on which period it's
+          summing; it only ever sees whatever `offsets`/`periodLabel` it's handed.
      2. **Coming up** — deadlines in relative time ("Midterm in 12 days"), never absolute
         dates. Each card is a button that opens the task it names; the label, the
         countdown and the click target are all read off the same next-due task, so a

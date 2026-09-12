@@ -44,8 +44,8 @@ export function PlanPage({ onOpenTask }) {
   const [selectedOffset, setSelectedOffset] = useState(0);
   const [weekStart, setWeekStart] = useState(0);
   // One shared clock for the calendar's "now" line/auto-cross-out and the
-  // class panel's "how far through this week" bars -- both read the same
-  // live time rather than each keeping its own.
+  // class panel's "how far through" bars -- both read the same live time
+  // rather than each keeping its own.
   const now = useNow();
 
   const allDays = useMemo(() => horizonDays(14, plan.windowStart ? new Date(plan.windowStart) : new Date()).map(d => plan.windowStart ? { ...d, label: d.date.toLocaleDateString('en-US', { weekday: 'short' }) } : d), [plan.windowStart]);
@@ -62,6 +62,11 @@ export function PlanPage({ onOpenTask }) {
   const selectedItems = itemsForDay(plan, selectedOffset);
   const selectedMinutes = selectedItems.reduce((sum, i) => sum + i.durationMin, 0);
   const optimality = optimalityLabel(plan.run);
+  // The class key tallies whatever period the calendar itself is showing --
+  // the visible week in Week view, just the one visible day in Day view --
+  // rather than always defaulting to the week regardless of what's on screen.
+  const legendOffsets = range === 'week' ? weekDays.map((d) => d.offset) : [selectedOffset];
+  const legendPeriodLabel = range === 'week' ? 'this week' : selectedDay.label.toLowerCase();
 
   function shiftWeek(delta) {
     const next = Math.min(7, Math.max(0, weekStart + delta));
@@ -126,7 +131,7 @@ export function PlanPage({ onOpenTask }) {
           onOpenTask={onOpenTask}
           now={now}
         />
-        <ClassLegend plan={plan} weekOffsets={weekDays.map((d) => d.offset)} now={now} />
+        <ClassLegend plan={plan} offsets={legendOffsets} periodLabel={legendPeriodLabel} now={now} />
       </div>
 
       <div>
