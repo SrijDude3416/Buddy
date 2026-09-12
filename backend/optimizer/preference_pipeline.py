@@ -14,6 +14,7 @@ from fastapi import HTTPException
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 import data_loader
+import mongo_state
 import scheduler
 from preferences_store import PreferenceStore, WEIGHT_MAP
 from plan_payload import to_plan_payload
@@ -56,6 +57,20 @@ def canonical_preferences(store):
 
 # CP-SAT already uses worker threads internally. Avoid piling up concurrent solves.
 _SOLVE_LOCK = threading.Lock()
+
+
+def _try(label, fn):
+    """Runs a Mongo durability side-effect (mongo_state.py) without ever
+    letting it break the request the user is actually waiting on. A chat
+    turn that worked but failed to persist is a degraded demo ("this
+    session's state won't survive a restart"); a chat turn that worked but
+    then raised because of a logging write would be a demo that appears
+    broken over a concern the user never asked about. Printed either way --
+    same "never silent" policy as data_loader.load_data_preferring_mongo."""
+    try:
+        fn()
+    except Exception as exc:
+        print(f"[preference_pipeline] {label} failed ({exc}); continuing without it.")
 
 
 def register_pipeline(app):
@@ -119,13 +134,46 @@ def register_pipeline(app):
             seconds = time.perf_counter()-started
         finally:
             _SOLVE_LOCK.release()
+
+        # inputs_snapshot: exactly what this solve was asked to do -- the
+        # applied tool calls and the resulting canonical preference set,
+        # same shape the response itself already returns, not a re-derived
+        # summary that could drift from what the caller actually saw.
+        inputs_snapshot = {"course_ids": sorted(selected), "operations": applied, "preferences": preferences}
+
         if result.status_name not in ("FEASIBLE", "OPTIMAL"):
+            _try("optimizer_runs log (infeasible)", lambda: mongo_state.log_optimizer_run(
+                status=result.status_name, inputs_snapshot=inputs_snapshot,
+                objective_value=None, best_bound=None, gap=None, solve_seconds=seconds,
+            ))
             raise HTTPException(409, {"message": "The optimizer could not find a usable schedule. Previous preferences and calendar are unchanged.", "status": result.status_name})
+
         plan = to_plan_payload(result, data, api.WINDOW_START, api.WINDOW_DAYS, preferences, seconds)
+
+        _try("preferences save", lambda: mongo_state.save_preferences(store))
+        _try("optimizer_runs log", lambda: mongo_state.log_optimizer_run(
+            status=result.status_name, inputs_snapshot=inputs_snapshot,
+            objective_value=result.objective_value, best_bound=result.best_bound,
+            gap=plan["run"]["gap"], solve_seconds=seconds,
+        ))
+
         return {"preferences": preferences, "preference_calls": applied, "plan": plan}
 
     @lru_cache(maxsize=1)
     def initial_plan():
+        # Prefers whatever this demo user last saved (mongo_state.py) so a
+        # fresh server start, or a brand-new browser tab with no prior
+        # state, picks up where the last session left off instead of
+        # always resetting to a generic 8-5 default. Printed either way,
+        # not silent -- same policy as data_loader.load_data_preferring_mongo.
+        try:
+            saved = mongo_state.load_preferences()
+            if saved.list_active():
+                calls = [PreferenceCall(**c) for c in canonical_preferences(saved)]
+                print(f"[preference_pipeline] Restored {len(calls)} saved preference(s) from MongoDB.")
+                return apply_and_solve(PreferenceBatch(preferences=calls))
+        except Exception as exc:
+            print(f"[preference_pipeline] Could not load saved preferences from MongoDB ({exc}); using default.")
         return apply_and_solve(PreferenceBatch(preferences=[PreferenceCall(
             name="set_preferred_work_hours", arguments={"start_time": "08:00", "end_time": "17:00", "strength": "moderate"},
         )]))

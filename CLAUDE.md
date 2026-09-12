@@ -133,6 +133,17 @@ implementation (none of it is wired to a real backend yet):
   `seed_mongo.py` from `test-data/schedule_test_data.json`), falling back to
   that same static file — loudly, via a startup log line, not silently — when
   Mongo isn't reachable (`data_loader.load_data_preferring_mongo()`).
+  `preferences` and `optimizer_runs` are Mongo-backed too now (`mongo_state.py`,
+  wired into `preference_pipeline.py`): every successful chat-triggered solve
+  saves the resulting preference set and logs a durable run record, and a
+  fresh server start restores the last-saved preferences instead of resetting
+  to the hardcoded default. Mongo here is strictly a durability side-effect
+  *after* a request already succeeded — it never participates in the
+  correctness guarantee that an error/cancelled request leaves no half-applied
+  preference behind (buddy/'s per-request isolated `PreferenceStore` still
+  owns that). `sessions` and `chat_messages` are the two SCHEMA.md collections
+  still not persisted — the calendar and chat transcript are still recomputed/
+  browser-held, not stored.
 
 ## Frontend
 
