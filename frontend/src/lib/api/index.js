@@ -5,6 +5,19 @@
 // ---------------------------------------------------------------------------
 
 import { request } from '../apiClient.js';
+import { config } from '../config.js';
+
+export const authApi = {
+  session: ({ signal } = {}) => request('getAuthSession', { signal }),
+  logout: ({ signal } = {}) => request('logout', { signal }),
+  /**
+   * Sign-in is a full-page navigation, not a fetch: the OAuth flow has to happen
+   * in the address bar so Google can show its own consent screen and set its own
+   * cookies. `next` comes back to us after the round trip.
+   */
+  signInUrl: (next = '/') =>
+    `${config.apiBaseUrl}/auth/google?next=${encodeURIComponent(next)}`,
+};
 
 export const preferencesApi = {
   create: (entries, { replaceSource, signal } = {}) =>

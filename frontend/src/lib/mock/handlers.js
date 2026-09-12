@@ -93,6 +93,26 @@ function tickRun(run) {
 }
 
 export const mockHandlers = {
+  // --- auth ----------------------------------------------------------------
+  // Mock mode signs in a demo student automatically. The point is that the app
+  // stays demo-able with no Atlas cluster, no Google client and no network — so a
+  // backend outage can never take the demo down with it. The real flow is a
+  // full-page redirect to Google, which cannot be faked here.
+  getAuthSession: () => ({
+    user: {
+      id: db.user._id,
+      email: 'demo@andrew.cmu.edu',
+      name: 'Demo student',
+      picture: null,
+      term: 'F25',
+      onboarding_complete: db.tasks.length > 0,
+    },
+  }),
+  logout: () => {
+    resetDb();
+    return { ok: true };
+  },
+
   // --- course catalog ------------------------------------------------------
   listCourseCatalog: () => ({
     courses: COURSE_CATALOG.map((c) => ({

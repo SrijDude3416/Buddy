@@ -8,7 +8,7 @@
 // whether the solve takes 200ms against dummy data or 20s against CP-SAT.
 // ---------------------------------------------------------------------------
 
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { MessageCircle } from 'lucide-react';
 import { PillTabs } from './components/ui/PillTabs.jsx';
 import { ChatSidebar } from './components/chat/ChatSidebar.jsx';
@@ -21,7 +21,12 @@ import { TaskDetail } from './pages/TaskDetail.jsx';
 import { PlanProvider, usePlan } from './state/PlanProvider.jsx';
 import { ChatProvider, useChat } from './state/ChatProvider.jsx';
 import { ThemeProvider } from './state/ThemeProvider.jsx';
+import { AuthProvider, useAuth } from './state/AuthProvider.jsx';
 import { ThemeToggle } from './components/ui/ThemeToggle.jsx';
+import { UserMenu } from './components/ui/UserMenu.jsx';
+import { SignIn } from './pages/SignIn.jsx';
+import { Spinner } from './components/ui/Spinner.jsx';
+import { ErrorNotice } from './components/ui/ErrorNotice.jsx';
 import { preferencesApi } from './lib/api/index.js';
 import { preferencesFromOnboarding, runContextFromOnboarding } from './lib/onboarding.js';
 import { isAborted } from './lib/errors.js';
@@ -39,6 +44,7 @@ function HubHeader({ page, setPage }) {
       <PillTabs tabs={HUB_TABS} value={page === 'task' ? 'plan' : page} onChange={setPage} />
       <div className="flex items-center gap-2">
         <ThemeToggle />
+        <UserMenu />
         {/* The only way to change the schedule: talk to Buddy. */}
         <button
           type="button"
@@ -78,9 +84,11 @@ function Hub() {
 }
 
 function Shell() {
-  const { setFromPayload } = usePlan();
+  const { setFromPayload, refresh } = usePlan();
+  const { user } = useAuth();
   // onboarding | generating | first_look | hub
-  const [phase, setPhase] = useState('onboarding');
+  const [phase, setPhase] = useState(user?.onboarding_complete ? 'hub' : 'onboarding');
+  const [resuming, setResuming] = useState(Boolean(user?.onboarding_complete));
   const [answers, setAnswers] = useState({});
   const [runContext, setRunContext] = useState(null);
   const [submitting, setSubmitting] = useState(false);
@@ -115,6 +123,29 @@ function Shell() {
     },
     [setFromPayload],
   );
+
+  // A returning user already has a plan in the database — load it and drop them
+  // straight into the hub rather than making them redo onboarding every visit.
+  useEffect(() => {
+    if (!user?.onboarding_complete) return;
+    let cancelled = false;
+    (async () => {
+      await refresh();
+      if (!cancelled) setResuming(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.onboarding_complete, refresh]);
+
+  if (resuming) {
+    return (
+      <div className="min-h-screen bg-stone-100 dark:bg-stone-950 flex items-center justify-center gap-2 text-stone-500 dark:text-stone-400">
+        <Spinner className="w-4 h-4" />
+        <span className="text-sm">Loading your week</span>
+      </div>
+    );
+  }
 
   // The hub needs the width for a calendar; onboarding and the first look stay
   // narrow and centered.
@@ -155,14 +186,51 @@ function Shell() {
   );
 }
 
+/**
+ * The auth gate. Nothing decision-shaped renders until /auth/session answers, so
+ * a signed-in user never sees a flash of the sign-in screen and a signed-out one
+ * never sees a half-loaded hub.
+ */
+function Gate() {
+  const { status, error, refresh } = useAuth();
+
+  if (status === 'loading') {
+    return (
+      <div className="min-h-screen bg-stone-100 dark:bg-stone-950 flex items-center justify-center">
+        <Spinner className="w-5 h-5 text-stone-400" />
+      </div>
+    );
+  }
+
+  // Reaching the API failed outright — different from being signed out, and
+  // showing a sign-in button here would just fail again.
+  if (status === 'error') {
+    return (
+      <div className="min-h-screen bg-stone-100 dark:bg-stone-950 flex items-center justify-center p-6">
+        <div className="w-full max-w-sm">
+          <ErrorNotice error={error} onRetry={refresh} title="Can't reach Buddy" />
+        </div>
+      </div>
+    );
+  }
+
+  if (status !== 'signedIn') return <SignIn />;
+
+  return (
+    <PlanProvider>
+      <ChatProvider>
+        <Shell />
+      </ChatProvider>
+    </PlanProvider>
+  );
+}
+
 export default function App() {
   return (
     <ThemeProvider>
-      <PlanProvider>
-        <ChatProvider>
-          <Shell />
-        </ChatProvider>
-      </PlanProvider>
+      <AuthProvider>
+        <Gate />
+      </AuthProvider>
     </ThemeProvider>
   );
 }

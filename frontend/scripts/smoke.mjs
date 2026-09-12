@@ -4,7 +4,7 @@
 // invariants that matter. Run with: npm run smoke
 // ---------------------------------------------------------------------------
 
-import { preferencesApi, optimizerApi, planApi, sessionsApi, chatApi, coursesApi } from '../src/lib/api/index.js';
+import { authApi, preferencesApi, optimizerApi, planApi, sessionsApi, chatApi, coursesApi } from '../src/lib/api/index.js';
 import { preferencesFromOnboarding, runContextFromOnboarding } from '../src/lib/onboarding.js';
 import { toPlanView, timelineForDay, itemsForDay, assignLanes, sessionsByGoalForDay, visibleHourRange } from '../src/lib/adapters.js';
 import { db } from '../src/lib/mock/db.js';
@@ -29,6 +29,13 @@ const answers = {
   style: 'Standard blocks (~1 hr)',
   pressure: 'An upcoming exam',
 };
+
+console.log('\nauth');
+const session = await authApi.session();
+check('session returns a user', Boolean(session.user?.id));
+check('user has an email and name', Boolean(session.user.email && session.user.name));
+check('reports onboarding state', typeof session.user.onboarding_complete === 'boolean');
+check('sign-in URL is a full-page redirect to the auth route', authApi.signInUrl('/').includes('/auth/google?next='));
 
 console.log('\ncourse catalog');
 const catalog = await coursesApi.catalog();

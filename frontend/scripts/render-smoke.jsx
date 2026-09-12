@@ -9,6 +9,9 @@ import { renderToString } from 'react-dom/server';
 import { PlanProvider } from '../src/state/PlanProvider.jsx';
 import { ChatProvider } from '../src/state/ChatProvider.jsx';
 import { ThemeProvider } from '../src/state/ThemeProvider.jsx';
+import { AuthProvider } from '../src/state/AuthProvider.jsx';
+import { SignIn } from '../src/pages/SignIn.jsx';
+import { UserMenu } from '../src/components/ui/UserMenu.jsx';
 import { CalendarView } from '../src/components/plan/CalendarView.jsx';
 import { GoalSwimlanes } from '../src/components/plan/GoalSwimlanes.jsx';
 import { ClassLegend } from '../src/components/plan/ClassLegend.jsx';
@@ -73,8 +76,21 @@ const withProviders = (children) => (
 const plan = toPlanView(payload);
 const days = horizonDays(7);
 
+console.log('\nauth surfaces');
+// App now renders the gate first; the session request is in flight on first paint,
+// so what must NOT appear is the hub or onboarding.
+renders('App renders the gate, not the hub', <App />, []);
+const appHtml = renderToString(<App />);
+renders('gate shows nothing decision-shaped while loading', <span>{String(!appHtml.includes('Setting up Buddy') && !appHtml.includes('Coming up'))}</span>, ['true']);
+renders(
+  'SignIn screen',
+  <ThemeProvider><AuthProvider><SignIn /></AuthProvider></ThemeProvider>,
+  ['Buddy', 'demo student', 'dummy data'],
+);
+renders('UserMenu with no user renders nothing', <ThemeProvider><AuthProvider><UserMenu /></AuthProvider></ThemeProvider>, []);
+
 console.log('\npages render');
-renders('App (starts on onboarding)', <App />, ['Setting up Buddy', 'Which classes are you taking']);
+renders('Onboarding (direct)', <Onboarding onComplete={() => {}} />, ['Setting up Buddy', 'Which classes are you taking']);
 renders('Onboarding', <Onboarding onComplete={() => {}} />, ['Setting up Buddy']);
 renders(
   'GeneratingPlan',

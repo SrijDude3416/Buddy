@@ -67,6 +67,17 @@ violates one of these as a regression, not a simplification, even if it looks cl
   logic scattered through the app.
 - **The optimizer only ever reads `tasks`, `preferences`, and `sessions`.** Syllabus
   internals (`courses`, `syllabus_data`) never reach it directly — see `SCHEMA.md`.
+- **Every per-user query carries `user_id` in the filter, never as a post-fetch check.**
+  `requireUser()` in `backend/lib/api.js` is the only place identity is established, and
+  the filter is the only thing standing between one student's schedule and another's. A
+  query against `tasks`, `sessions`, `preferences`, `chat_messages` or `optimizer_runs`
+  without `user_id` in its filter is a security bug, not a style preference. `courses`
+  and `syllabus_data` are deliberately shared and unscoped.
+- **Auth never stores a password.** Sign-in is Google OAuth with the verified `hd` claim
+  checked against an allowlist. Because CMU Andrew accounts are Google Workspace, this is
+  CMU's own directory doing the authenticating. The `hd` *request* parameter is a UI hint
+  only and is trivially bypassed — the verified `hd`/email-domain claim is the real gate,
+  so never treat the request parameter as the check.
 
 ## Architecture
 
@@ -75,7 +86,8 @@ violates one of these as a regression, not a simplification, even if it looks cl
 | Layer | Tech |
 |---|---|
 | Frontend | React, Tailwind |
-| Backend | Vercel, Next.js, MongoDB |
+| Backend | Vercel, Next.js (App Router route handlers), MongoDB Atlas |
+| Auth | Google OAuth restricted to `andrew.cmu.edu` — this *is* CMU sign-in |
 | Data scraping | Canvas REST API |
 | Data parsing | Low-cost recurring per-semester parsing of Canvas data |
 | Scheduling engine | Python, CP-SAT (Google OR-Tools) |
@@ -84,14 +96,31 @@ violates one of these as a regression, not a simplification, even if it looks cl
 ### Repo layout (target — not all of this exists yet)
 
 ```
-/frontend            React + Tailwind app (see "Frontend" below)
-/backend
-  /api                Next.js API routes
-  /optimizer          CP-SAT model + preference compiler registry (Python)
-  /pipeline           Canvas scraping + syllabus parsing (per-semester job)
+/frontend            React + Tailwind app (Vite) — see "Frontend" below
+/backend             Next.js API + auth (exists)
+  /app/api            route handlers: 14 routes matching frontend/src/lib/endpoints.js
+  /lib                mongo, session, google (OAuth), runs, planEngine, seed
+  /optimizer          CP-SAT model + preference compiler registry (Python) — not yet
+  /pipeline           Canvas scraping + syllabus parsing (per-semester job) — not yet
 SCHEMA.md            MongoDB schema — source of truth for collection shapes
 CLAUDE.md            this file
 ```
+
+### The frontend/backend seam
+
+`frontend/src/lib/endpoints.js` is the contract: every route, method and path in one
+table. `backend/app/api/**/route.js` mirrors it one-for-one, and the mock handlers in
+`frontend/src/lib/mock/handlers.js` are keyed by the same names. Three implementations of
+one contract, which is what lets `VITE_API_MODE=mock` keep the app fully demo-able with
+no cluster, no Google client and no network — a backend outage can never take the demo
+down with it. **When you add a route, add it in all three places or the check in
+`frontend/scripts/` that pairs them will fail.**
+
+Document ids: `users`, `preferences`, `chat_messages` and `optimizer_runs` use
+Mongo-generated ObjectIds. `tasks` and `sessions` use the readable strings
+`backend/lib/planEngine.js` generates (`sess_f3db2580d02`), which carry a random segment
+precisely because a per-process counter would hand two users the same id. Do not wrap
+those in `new ObjectId(...)` — it will 404 every real session.
 
 What exists today, produced during MVP/design work and worth using as a reference
 implementation (none of it is wired to a real backend yet):

@@ -12,6 +12,13 @@
 // ---------------------------------------------------------------------------
 
 export const endpoints = {
+  // --- auth ----------------------------------------------------------------
+  // GET -> { user: { id, email, name, picture, onboarding_complete } | null }
+  // 200 with user: null when signed out — "not signed in" is a normal answer to
+  // this question, not an error.
+  getAuthSession: { method: 'GET', path: () => '/auth/session' },
+  logout: { method: 'POST', path: () => '/auth/logout' },
+
   // --- course catalog ------------------------------------------------------
   // GET -> { courses: [{ _id, code, name, section, department, units, meeting_times }] }
   // The shared catalog the Canvas pipeline populates. Onboarding's class picker
