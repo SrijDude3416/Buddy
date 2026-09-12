@@ -142,11 +142,11 @@
       "course_id": "math-found",
       "title": "HW3 Due",
       "due_at": "2026-09-16T23:59:00-04:00",
-      "est_duration_min": 645,
-      "est_duration_is_guess": false,
+      "est_duration_min": 240,
+      "est_duration_is_guess": true,
       "splittable": true,
       "status": "in_progress",
-      "notes": "Notion status already 'In Progress'. Duration from Notion (Hours Remaining: 10.75) used as-is even though it's unusually large compared to other items — this is a real graded problem set (not one of the optional weekly readings), so a bigger multi-session estimate seems plausible, but flagging it as a notable outlier. Notion gave no due time; guessed 11:59pm as a generic homework-portal deadline."
+      "notes": "Notion status already 'In Progress'. Notion's raw duration (Hours Remaining: 10.75, i.e. 645min) was kept as-is for a while as a flagged outlier, but at 10.75h due in 5 days it single-handedly ate most of the near-term schedule -- every other task due in the same window totals well under 4h combined, so this one task made the whole week look like 'spam this one assignment' rather than a normal multi-course load. Rescaled down to 240min (still splits into multiple sessions, still the biggest near-term item, just no longer disproportionate to everything else due the same week) -- a deliberate demo-quality edit, not a re-pull from Notion; est_duration_is_guess flipped to true to mark that. Notion gave no due time; guessed 11:59pm as a generic homework-portal deadline."
     },
     {
       "id": "mf-4-3-strong-induction",

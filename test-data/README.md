@@ -34,5 +34,14 @@ Known imperfections, intentional and left in rather than cleaned up:
   taken) — useful for exercising "already completed, don't schedule" logic, not just
   the pending-work path.
 
+One deliberate exception to "left in rather than cleaned up": `mf-hw3-due`'s
+`est_duration_min` was rescaled from Notion's raw 645 (10.75h, due in 5 days) down to
+240. At the real value it single-handedly dominated the whole near-term window — every
+*other* task due the same week totaled well under 4h combined — so the demo read as
+"the optimizer just spams one assignment" rather than a normal multi-course load. See
+that task's own `notes` field for the full before/after; `est_duration_is_guess` was
+flipped to `true` on it for the same reason every other rescaled/estimated value in
+this file carries that flag — this number no longer traces back to a real Notion pull.
+
 This is throwaway/sample data, not a schema migration target — don't treat its exact
 field set as more authoritative than `SCHEMA.md` itself.
