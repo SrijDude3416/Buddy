@@ -82,3 +82,16 @@ export function isoAt(dayOffsetFromToday, hour, minute = 0, now = new Date()) {
 export function addMinutesIso(iso, minutes) {
   return new Date(new Date(iso).getTime() + minutes * 60000).toISOString();
 }
+
+/**
+ * Whether a session's own scheduled end has already passed, real wall-clock
+ * time. Used to auto-cross-out a session once its calendar slot has
+ * happened, independent of whether the user ever checked it off — SCHEMA.md's
+ * `completed` stays a separate, user-controlled signal; this is a third,
+ * computed-at-read-time dimension layered on top for display only, never
+ * stored (same rule this whole file already follows for day labels and
+ * relative deadlines).
+ */
+export function hasEnded(iso, now = new Date()) {
+  return !!iso && new Date(iso).getTime() <= now.getTime();
+}

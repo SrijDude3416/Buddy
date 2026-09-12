@@ -275,7 +275,31 @@ implementation (none of it is wired to a real backend yet):
 4. **Task detail** — a task is a list of ordered sessions, each with a concrete action
    and its own intensity indicator. No due-date field, no priority dropdown. The only
    action beyond marking a session done is "Ask Buddy about this," which opens the
-   sidebar seeded with the task's name.
+   sidebar seeded with the task's name. A calendar block's click target already lands
+   here (`CalendarView`'s `onOpenTask`) — clicking any individual session on the
+   calendar opens its *task's* page, not a session-level view; there's no separate
+   per-session screen.
+   - **Each session in a multi-session task gets a distinguishing "(i of N)" suffix**
+     (`decompose.py`'s `_session_title`) — reversed from this file's own earlier
+     stance (one shared bare title, on the theory that calendar position already
+     communicates "ongoing multi-part work"). True on the calendar grid, not true in
+     this page's own plain vertical checklist, where four identical "Work on HW3"
+     rows can't be told apart without opening each one. A single-session task is
+     untouched — nothing to differentiate.
+   - **A session crosses out automatically once its own scheduled time has passed,
+     independent of the checkbox.** `completed` stays exactly what it always was — a
+     real, stored, user-controlled "did I do this" signal (`toggleSessionComplete`
+     untouched) — but a session whose `end` is already behind real wall-clock time
+     now *reads* as done (line-through, dimmed) even if nobody tapped the checkbox,
+     both here and on the calendar block itself (`CalendarView`'s `Block`). This is a
+     third, purely computed-at-read-time dimension layered on top for display only,
+     following the same rule `adapters.js`'s own header comment already states for
+     progress/days-to-deadline: derived, never stored. `frontend/src/lib/time.js`'s
+     `hasEnded(iso, now)` is the pure check; `frontend/src/hooks/useNow.js` is the
+     shared ticking clock both `TaskDetail` and `CalendarView` read from (one shared
+     hook, not each block keeping its own interval) — real wall-clock time, not the
+     plan's own fixed `windowStart` anchor, since the point is tracking what the
+     person looking at the screen actually experiences as "already happened."
 
 ### Design system
 

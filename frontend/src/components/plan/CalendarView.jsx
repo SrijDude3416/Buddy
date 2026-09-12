@@ -12,6 +12,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Lock } from 'lucide-react';
 import { assignLanes, itemsForDay, visibleHourRange } from '../../lib/adapters.js';
 import { colorFor } from '../../lib/courseColors.js';
+import { hasEnded } from '../../lib/time.js';
+import { useNow } from '../../hooks/useNow.js';
 
 const PX_PER_HOUR = 56;
 const GUTTER = 52;
@@ -27,8 +29,15 @@ function nowMinutes() {
   return d.getHours() * 60 + d.getMinutes();
 }
 
-function Block({ entry, laneCount, startHour, colorMap, onOpenTask }) {
+function Block({ entry, laneCount, startHour, colorMap, onOpenTask, now }) {
   const { item, lane } = entry;
+  // A session reads as "done" once its own slot has already passed, same as
+  // if the student had checked it off -- crossed out automatically, not
+  // waiting on a manual tap that may never come for something that already
+  // happened. `completed` itself is untouched (still the real, stored,
+  // user-controlled signal); this only changes how an unchecked-but-past
+  // session is drawn.
+  const isPast = !item.completed && item.type !== 'fixed' && hasEnded(item.end, now);
   const color = colorFor(colorMap, item.courseId);
   const top = ((item.minutesIntoDay - startHour * 60) / 60) * PX_PER_HOUR;
   const height = Math.max(20, (item.durationMin / 60) * PX_PER_HOUR - 2);
@@ -81,7 +90,7 @@ function Block({ entry, laneCount, startHour, colorMap, onOpenTask }) {
       <span className="px-1.5 py-1 min-w-0 flex-1">
         <span
           className={`block text-[11px] font-medium truncate ${
-            item.completed ? 'line-through opacity-60' : ''
+            item.completed || isPast ? 'line-through opacity-60' : ''
           } ${color.text}`}
         >
           {item.action}
@@ -92,7 +101,7 @@ function Block({ entry, laneCount, startHour, colorMap, onOpenTask }) {
   );
 }
 
-function DayColumn({ plan, offset, startHour, endHour, colorMap, onOpenTask, isToday }) {
+function DayColumn({ plan, offset, startHour, endHour, colorMap, onOpenTask, isToday, nowDate }) {
   const items = itemsForDay(plan, offset);
   const { placed, laneCount } = useMemo(() => assignLanes(items), [items]);
   const hours = endHour - startHour;
@@ -136,6 +145,7 @@ function DayColumn({ plan, offset, startHour, endHour, colorMap, onOpenTask, isT
           startHour={startHour}
           colorMap={colorMap}
           onOpenTask={onOpenTask}
+          now={nowDate}
         />
       ))}
 
@@ -150,6 +160,10 @@ export function CalendarView({ plan, days, selectedOffset, onSelectDay, onOpenTa
   const offsets = days.map((d) => d.offset);
   const { startHour, endHour } = useMemo(() => visibleHourRange(plan, offsets), [plan, offsets.join(',')]);
   const hours = endHour - startHour;
+  // One shared clock for every visible day column's auto-cross-out check
+  // (Block's `isPast`), rather than each block/column keeping its own --
+  // ticks once a minute, same cadence the existing per-day "now" line uses.
+  const nowDate = useNow();
   const scrollRef = useRef(null);
   const previous = useRef(null);
   useEffect(() => {
@@ -213,6 +227,7 @@ export function CalendarView({ plan, days, selectedOffset, onSelectDay, onOpenTa
               colorMap={plan.colorMap}
               onOpenTask={onOpenTask}
               isToday={!plan.windowStart && day.offset === 0}
+              nowDate={nowDate}
             />
           ))}
         </div>
