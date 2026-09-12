@@ -1,0 +1,136 @@
+{
+  "_comment": "Gemini/OpenAI/Claude-compatible function-declaration schemas for the preference-setting tools described in PREFERENCE_API.md (repo root). This file is the paste-ready artifact -- copy the `tools` array directly into a model call's tool-declaration list. Standard JSON Schema throughout (lowercase types), so this is portable across providers, not Gemini-specific. Keep this file and PREFERENCE_API.md in sync by hand until there's a codegen step; PREFERENCE_API.md's worked examples reference these exact parameter names.",
+  "tools": [
+    {
+      "name": "set_preferred_work_hours",
+      "description": "Set the single daily time window the student prefers to do flexible schoolwork in. Call this when they state a general daily rhythm, e.g. 'I like working in the evenings', 'mornings are my best time', 'I don't want to study before noon'. This REPLACES any previously set preferred hours -- there is only ever one active window, not a list.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "start_time": {
+            "type": "string",
+            "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$",
+            "description": "24-hour HH:MM, e.g. '17:00' for 5pm."
+          },
+          "end_time": {
+            "type": "string",
+            "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$",
+            "description": "24-hour HH:MM, e.g. '23:00' for 11pm. Must be later than start_time."
+          },
+          "strength": {
+            "type": "string",
+            "enum": ["gentle", "moderate", "firm"],
+            "description": "How strongly to favor this window over other times. 'moderate' is the tested default and correct unless the student explicitly emphasizes how important this is ('I REALLY only want to work at night').",
+            "default": "moderate"
+          }
+        },
+        "required": ["start_time", "end_time"]
+      }
+    },
+    {
+      "name": "set_daily_workload_limit",
+      "description": "Cap how many minutes of flexible schoolwork land on a given day (or every day). Call this when the student talks about feeling overloaded on certain days, wanting lighter days, or wanting a real rest day, e.g. 'Sundays should be light', 'don't pack more than a few hours a day', 'I'm burning out'. Can be called multiple times for DIFFERENT day-sets (e.g. once for weekdays generally, once for a stricter Sunday cap) -- those coexist. Calling it again for the SAME day-set replaces the previous limit for that day-set.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "minutes_per_day": {
+            "type": "integer",
+            "minimum": 30,
+            "maximum": 900,
+            "description": "Max flexible-work minutes on an affected day. 240 (4 hours) is a reasonable general default; 60-120 for an explicit light/rest day."
+          },
+          "days": {
+            "type": "array",
+            "items": { "type": "string", "enum": ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] },
+            "minItems": 1,
+            "description": "Which days this cap applies to. OMIT ENTIRELY to apply to every day -- do not pass all seven days explicitly, that is a different (and slower) case than the general default."
+          },
+          "strength": {
+            "type": "string",
+            "enum": ["gentle", "moderate", "firm"],
+            "description": "How hard the solver should try to respect this cap when the schedule is tight. 'firm' is right for an explicit rest day; 'moderate' for a general daily cap.",
+            "default": "moderate"
+          }
+        },
+        "required": ["minutes_per_day"]
+      }
+    },
+    {
+      "name": "protect_time_block",
+      "description": "Make a recurring block of time completely off-limits to flexible schoolwork -- total protection, not a soft preference. Call this for social time, sports, religious observance, or any other 'never schedule anything here' request, e.g. 'don't touch my Friday nights', 'I have church Sunday mornings', 'keep game nights free'. Can be called multiple times for DIFFERENT blocks -- they all stay protected simultaneously. Calling it again for the exact same days+window updates that one block (e.g. to widen it).",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "days": {
+            "type": "array",
+            "items": { "type": "string", "enum": ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] },
+            "minItems": 1,
+            "description": "Which days this protected block applies to."
+          },
+          "start_time": {
+            "type": "string",
+            "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$",
+            "description": "24-hour HH:MM start of the protected window."
+          },
+          "end_time": {
+            "type": "string",
+            "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]|24:00$",
+            "description": "24-hour HH:MM end of the protected window. Use '24:00' for midnight, not '00:00'."
+          }
+        },
+        "required": ["days", "start_time", "end_time"]
+      }
+    },
+    {
+      "name": "set_break_habits",
+      "description": "Control how the solver values giving the student real breaks during a work stretch. Call this when they talk about needing breaks, burning out, or working too long without stopping, e.g. 'I need a real break every couple hours', 'don't let me grind for 4 hours straight', 'shorter breaks are fine, just don't work me to death'. This is a SOFT goal (minimize the worst unbroken stretch), not an absolute cutoff -- a genuinely urgent deadline can still occasionally produce a longer stretch than usual. Replaces any previous call -- only one active setting.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "break_minutes": {
+            "type": "integer",
+            "minimum": 15,
+            "maximum": 120,
+            "default": 45,
+            "description": "How long a gap has to be before it counts as a real break (shorter gaps don't reset the 'been working too long' counter). 45 is the tested default."
+          },
+          "strength": {
+            "type": "string",
+            "enum": ["gentle", "moderate", "firm"],
+            "description": "How hard the solver should push to keep work stretches short. 'moderate' is the tested, recommended default. 'firm' measurably trades off against getting urgent work done early -- only use it if the student explicitly prioritizes breaks over finishing things ahead of schedule.",
+            "default": "moderate"
+          }
+        },
+        "required": []
+      }
+    },
+    {
+      "name": "remove_preference",
+      "description": "Retract a previously set preference. Call this when the student says something like 'never mind that', 'actually forget the Sunday thing', 'I changed my mind about evenings', or any other request to undo or cancel a specific earlier preference. Always confirm which preference in plain language before or after calling this if there's any doubt which one they mean.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "preference_type": {
+            "type": "string",
+            "enum": ["preferred_work_hours", "daily_workload_limit", "protected_time_block", "break_habits"],
+            "description": "Which kind of preference to remove."
+          },
+          "match": {
+            "type": "object",
+            "description": "Only needed for daily_workload_limit or protected_time_block when MORE THAN ONE is currently active -- repeat enough of the original call's parameters to identify which one (e.g. {\"days\": [\"Fri\", \"Sat\"]} to remove that specific protected block). Omit for preferred_work_hours/break_habits (there's only ever one), or when only one entry of the given type currently exists."
+          }
+        },
+        "required": ["preference_type"]
+      }
+    },
+    {
+      "name": "list_current_preferences",
+      "description": "Read back every preference currently active for this student. Call this before a remove_preference if you're not sure exactly what's set, or whenever the student asks what's currently affecting their schedule ('what have I told you so far?', 'what's my current setup?').",
+      "parameters": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      }
+    }
+  ]
+}

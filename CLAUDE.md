@@ -88,6 +88,9 @@ violates one of these as a regression, not a simplification, even if it looks cl
                      root, not under /frontend or /backend, so every branch can read
                      it without depending on another branch's directory
 SCHEMA.md            MongoDB schema — source of truth for collection shapes
+PREFERENCE_API.md    the AI-facing tool spec — what Gemini calls, and why each
+                     weight is the number it is. Self-contained; start there for
+                     anything about how chat feedback becomes a schedule change.
 CLAUDE.md            this file
 ```
 
@@ -242,6 +245,9 @@ actual, running code — no longer just a sketch):
   hand-written, unit-testable compiler function that turns `(value, weight)` into
   either a hard constraint or a list of bounded `(coefficient, BoolVar)` objective
   terms. This is the entire surface area where LLM-derived input enters the solver.
+  **`PREFERENCE_API.md`** is the AI-facing spec for this boundary — every tool Gemini
+  can call, why `weight` is never exposed as a raw number (see its §2), and which
+  registry types are deliberately *not* tool-exposed (always-on defaults instead).
 - **Reification direction matters and is easy to get quietly wrong.** A one-directional
   boolean implication is safe for a reward term but silently broken for a penalty term
   (the solver can dodge the penalty for free). `reify_window` fully reifies both

@@ -5,6 +5,12 @@ against `test-data/schedule_test_data.json` (Carlos's own Notion + Calendar
 export) rather than real Mongo data, so the pieces here are dependency-free
 (no pydantic/FastAPI yet) and easy to read.
 
+**If you're building the AI-facing or FastAPI layer on top of this, start at
+[`PREFERENCE_API.md`](../../PREFERENCE_API.md) (repo root), not here.** It's the
+self-contained spec for every tool an LLM calls, the exact weight each one maps to
+and why, and what's deliberately not exposed. `tool_schemas.json` in this directory
+is its paste-ready JSON-Schema companion.
+
 ## Setup
 
 ```
