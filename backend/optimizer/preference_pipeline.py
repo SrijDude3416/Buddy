@@ -7,6 +7,7 @@ leave partly applied preferences behind. No alternative scheduling algorithm.
 import os
 import time
 import threading
+from datetime import datetime
 from functools import lru_cache
 from typing import Literal
 
@@ -14,6 +15,7 @@ from fastapi import HTTPException
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 import data_loader
+import mongo_state
 import scheduler
 from preferences_store import PreferenceStore, WEIGHT_MAP
 from plan_payload import to_plan_payload
@@ -56,6 +58,20 @@ def canonical_preferences(store):
 
 # CP-SAT already uses worker threads internally. Avoid piling up concurrent solves.
 _SOLVE_LOCK = threading.Lock()
+
+
+def _try(label, fn):
+    """Runs a Mongo durability side-effect (mongo_state.py) without ever
+    letting it break the request the user is actually waiting on. A chat
+    turn that worked but failed to persist is a degraded demo ("this
+    session's state won't survive a restart"); a chat turn that worked but
+    then raised because of a logging write would be a demo that appears
+    broken over a concern the user never asked about. Printed either way --
+    same "never silent" policy as data_loader.load_data_preferring_mongo."""
+    try:
+        fn()
+    except Exception as exc:
+        print(f"[preference_pipeline] {label} failed ({exc}); continuing without it.")
 
 
 def register_pipeline(app):
@@ -119,19 +135,98 @@ def register_pipeline(app):
             seconds = time.perf_counter()-started
         finally:
             _SOLVE_LOCK.release()
+
+        # inputs_snapshot: exactly what this solve was asked to do -- the
+        # applied tool calls and the resulting canonical preference set,
+        # same shape the response itself already returns, not a re-derived
+        # summary that could drift from what the caller actually saw.
+        inputs_snapshot = {"course_ids": sorted(selected), "operations": applied, "preferences": preferences}
+
         if result.status_name not in ("FEASIBLE", "OPTIMAL"):
+            _try("optimizer_runs log (infeasible)", lambda: mongo_state.log_optimizer_run(
+                status=result.status_name, inputs_snapshot=inputs_snapshot,
+                objective_value=None, best_bound=None, gap=None, solve_seconds=seconds,
+            ))
             raise HTTPException(409, {"message": "The optimizer could not find a usable schedule. Previous preferences and calendar are unchanged.", "status": result.status_name})
+
         plan = to_plan_payload(result, data, api.WINDOW_START, api.WINDOW_DAYS, preferences, seconds)
-        return {"preferences": preferences, "preference_calls": applied, "plan": plan}
+
+        # Past-preserving merge: whatever the previous cached plan showed for
+        # times already behind "now" carries over untouched, rather than a
+        # fresh solve silently rewriting a slot the user already saw/acted
+        # on. `now` is real wall-clock time (not the fixed WINDOW_START demo
+        # anchor) in the same tz WINDOW_START itself uses, then stripped to
+        # match plan_payload.py's naive session timestamps.
+        try:
+            previous = mongo_state.load_plan_cache()
+        except Exception as exc:
+            previous = None
+            print(f"[preference_pipeline] Could not load previous plan for past-preservation ({exc}); using fresh solve as-is.")
+        if previous and previous.get("plan", {}).get("sessions"):
+            now = datetime.now(api.WINDOW_START.tzinfo).replace(tzinfo=None)
+            plan["sessions"] = mongo_state.merge_preserving_past(previous["plan"]["sessions"], plan["sessions"], now)
+
+        response = {"preferences": preferences, "preference_calls": applied, "plan": plan}
+
+        _try("preferences save", lambda: mongo_state.save_preferences(store))
+        _try("optimizer_runs log", lambda: mongo_state.log_optimizer_run(
+            status=result.status_name, inputs_snapshot=inputs_snapshot,
+            objective_value=result.objective_value, best_bound=result.best_bound,
+            gap=plan["run"]["gap"], solve_seconds=seconds,
+        ))
+        # Cached with preference_calls: [] -- a cache HIT should look exactly
+        # like a fresh cold-start default (nothing "just applied"), matching
+        # what /preferences/defaults already returns on its own fallback path.
+        _try("plan cache save", lambda: mongo_state.save_plan_cache(
+            {"preferences": preferences, "preference_calls": [], "plan": plan}
+        ))
+
+        return response
 
     @lru_cache(maxsize=1)
     def initial_plan():
-        return apply_and_solve(PreferenceBatch(preferences=[PreferenceCall(
-            name="set_preferred_work_hours", arguments={"start_time": "08:00", "end_time": "17:00", "strength": "moderate"},
-        )]))
+        # Restores whatever this demo user has saved (mongo_state.py) so a
+        # fresh server start, or a brand-new browser tab with no prior
+        # state, picks up where the last session left off. There is no
+        # hardcoded default preference here anymore -- the "initial
+        # calendar"'s one default (preferred_hours, 08:00-17:00, moderate)
+        # is real seed data now (seed_mongo.py's seed_default_preferences()),
+        # not a magic value materialized only as a side effect of the first
+        # solve. If Mongo genuinely has nothing (a fresh cluster nobody's
+        # seeded yet, or a transient read failure), this solves with an
+        # empty preference set rather than silently re-inventing a default
+        # here -- still governed by api.ALWAYS_ON_DEFAULTS's system-level
+        # behavior, so the demo still produces *a* calendar, just an
+        # honestly unpreferenced one. Printed either way, not silent -- same
+        # policy as data_loader.load_data_preferring_mongo.
+        calls = []
+        try:
+            saved = mongo_state.load_preferences()
+            calls = [PreferenceCall(**c) for c in canonical_preferences(saved)]
+        except Exception as exc:
+            print(f"[preference_pipeline] Could not load preferences from MongoDB ({exc}); solving with none.")
+        if calls:
+            print(f"[preference_pipeline] Restored {len(calls)} saved preference(s) from MongoDB.")
+        else:
+            print("[preference_pipeline] No preferences saved yet (run seed_mongo.py to seed the default); solving with none.")
+        return apply_and_solve(PreferenceBatch(preferences=calls))
 
     @app.get("/preferences/defaults")
     def defaults():
-        # This cached starting plan is computed by CP-SAT from the full original
-        # static dataset. Every feedback batch above always runs a new solve.
+        # The actual "don't re-run the optimizer every page load" behavior:
+        # a page load is GET /preferences/defaults, and if apply_and_solve
+        # has ever completed for this user, mongo_state.plan_cache already
+        # has a full, current response sitting there -- return it as-is, no
+        # solve. Only a genuinely first-ever load (nothing cached yet) falls
+        # through to initial_plan()'s restore-preferences-then-solve path.
+        # The frontend's "Recalculate" button (POST /preferences/operations
+        # with no new operations) is the explicit, user-requested way to
+        # force a fresh solve -- that endpoint is untouched by this cache.
+        try:
+            cached = mongo_state.load_plan_cache()
+            if cached and cached.get("plan", {}).get("sessions"):
+                print("[preference_pipeline] Restored cached plan from MongoDB (no solve).")
+                return cached
+        except Exception as exc:
+            print(f"[preference_pipeline] Could not load cached plan ({exc}); solving fresh.")
         return initial_plan()

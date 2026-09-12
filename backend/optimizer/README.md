@@ -103,8 +103,36 @@ is a `422` before any solving starts.
   the model or test data changes and the preview needs to reflect it.
 - `api.py` -- the FastAPI service implementing `PREFERENCE_API.md`: `POST /solve`
   (stateless), the six `/tools/*` endpoints, and `GET /plan`, all against the one
-  test student loaded from `test-data/schedule_test_data.json` at startup. See
-  "Running the API" above.
+  test student loaded at startup by `data_loader.load_data_preferring_mongo()`
+  (Mongo when reachable, `test-data/schedule_test_data.json` as a loud, printed
+  fallback otherwise). See "Running the API" above.
+- `mongo_loader.py` / `seed_mongo.py` -- the Mongo side of that: `mongo_loader.py`
+  reads `courses`/`tasks` out of the real Atlas cluster in SCHEMA.md's actual
+  shape (credentials from `backend/.env.local`, not a second `.env` file --
+  there's exactly one connection string for this project); `seed_mongo.py` is
+  the idempotent, one-time upsert of `test-data/schedule_test_data.json` into
+  that shape. Both tag every document `seed_source: "carlos_test_data"` /
+  `user_id: "demo-carlos"` so they never collide with `backend/lib/catalog.js`'s
+  own unrelated synthetic course catalog living in the same `courses` collection.
+- `mongo_state.py` -- the per-user *runtime* state half of the same cluster:
+  `save_preferences`/`load_preferences` (the `preferences` collection) and
+  `log_optimizer_run` (the `optimizer_runs` "why" log CLAUDE.md describes).
+  Deliberately a separate module from `mongo_loader.py` -- read/write, per-user
+  state vs. read-only, shared/static catalog. Every call here is a durability
+  side-effect wrapped in `preference_pipeline.py`'s `_try()`: it can never turn
+  a working chat request into a failed one, only degrade "this survives a
+  restart" back to "it doesn't," printed either way.
+- `preference_pipeline.py` -- batches the existing `/tools/*` handlers against
+  an isolated `PreferenceStore` per request (buddy/'s actual demo entry point:
+  `POST /preferences/operations`, `GET /preferences/defaults`) and runs one
+  real CP-SAT solve. Persists to Mongo (`mongo_state.py`) only *after* a
+  request has already succeeded -- nothing about persistence is part of the
+  isolation guarantee that makes a cancelled/errored request leave no
+  half-applied preference behind. `GET /preferences/defaults` prefers whatever
+  was last saved over the hardcoded 8am-5pm default, so a fresh server start
+  or a brand-new browser tab picks up where the last session left off.
+- `plan_payload.py` -- translates a real `SolveResult` into the exact
+  calendar shape `buddy/`'s React frontend already renders.
 - `api_models.py` -- every request/response pydantic model, one file separate
   from the endpoint wiring on purpose (same one-concern-per-file split as the
   rest of this package). Validation here is what produces `PREFERENCE_API.md`

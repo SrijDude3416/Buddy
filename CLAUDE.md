@@ -133,13 +133,43 @@ implementation (none of it is wired to a real backend yet):
   in-memory data; every place a real API call belongs is marked with a
   `// In production: ...` comment.
 - **`SCHEMA.md`** — MongoDB schema, v2, feature-aligned with the MVP.
-- **`backend/optimizer/`** — a real, running CP-SAT prototype against
-  `test-data/schedule_test_data.json`: the preference-compiler-registry pattern
-  (`preferences.py`, with a correctly bidirectional `reify_window`), placement
-  (`scheduler.py`), and an eval harness (`eval.py`) that turns a solve into concrete
-  numbers instead of an eyeballed calendar. See `backend/optimizer/README.md` for what
-  a preference-tuning pass actually found (a duration-rounding bug, an objective-scaling
-  bug, and a real modeling gap around fixed-time exams — still open, see below).
+- **`backend/optimizer/`** — a real, running CP-SAT prototype: the
+  preference-compiler-registry pattern (`preferences.py`, with a correctly
+  bidirectional `reify_window`), placement (`scheduler.py`), and an eval harness
+  (`eval.py`) that turns a solve into concrete numbers instead of an eyeballed
+  calendar. See `backend/optimizer/README.md` for what a preference-tuning pass
+  actually found (a duration-rounding bug, an objective-scaling bug, and a real
+  modeling gap around fixed-time exams — still open, see below). Course/task
+  data now prefers the real Atlas cluster (`mongo_loader.py`, seeded by
+  `seed_mongo.py` from `test-data/schedule_test_data.json`), falling back to
+  that same static file — loudly, via a startup log line, not silently — when
+  Mongo isn't reachable (`data_loader.load_data_preferring_mongo()`).
+  `preferences` and `optimizer_runs` are Mongo-backed too now (`mongo_state.py`,
+  wired into `preference_pipeline.py`): every successful chat-triggered solve
+  saves the resulting preference set and logs a durable run record, and a
+  fresh server start restores the last-saved preferences instead of resetting
+  to the hardcoded default. Mongo here is strictly a durability side-effect
+  *after* a request already succeeded — it never participates in the
+  correctness guarantee that an error/cancelled request leaves no half-applied
+  preference behind (buddy/'s per-request isolated `PreferenceStore` still
+  owns that). `chat_messages` is the one SCHEMA.md collection still not
+  persisted — the transcript is still browser-held only.
+
+  A page load (`GET /preferences/defaults`) no longer re-solves at all when a
+  cached plan already exists (`mongo_state.plan_cache` — not one of
+  SCHEMA.md's nine, a pure HTTP-layer cache the optimizer itself never reads;
+  see its docstring for why that's a deliberate exception) — it returns the
+  cached `{preferences, plan}` response directly. The frontend's "Confirm
+  preferences & view calendar" button skips its own redundant solve the same
+  way when nothing was customized. **Recalculate** (a button in the
+  calendar view) is the explicit way to force a fresh solve on demand — same
+  `/preferences/operations` real chat-triggered solves already use, just with
+  no new operations. Every solve now also merges in whatever the *previous*
+  cached plan showed for sessions whose `start` is already in the past
+  (real wall-clock time, not the demo's fixed `WINDOW_START` anchor) —
+  `mongo_state.merge_preserving_past()` — so a re-solve can't silently rewrite
+  a slot the user already saw happen; only sessions still in the future come
+  from the new solve.
 
 ## Frontend
 

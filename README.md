@@ -22,9 +22,59 @@ running optimizer, set `FASTAPI_BASE_URL` in the shell before running the comman
 The Next.js server also reads that URL from `buddy/.env.local`.
 
 For a production local demo: `npm run build`, then `npm start -- --port 3100`.
-No MongoDB, Canvas, or external calendar connection is required, and sign-in is
-optional (see below). An OpenAI key and the Python service are required for chat;
-there is one interpreter and one scheduling engine, with no simulated fallback.
+Canvas is still not required, and sign-in is optional for the demo (see
+"Sign in with CMU" below). MongoDB now **is** used when reachable,
+for two different things:
+- Courses/tasks: the Python optimizer reads these from the real Atlas cluster
+  (credentials in `backend/.env.local` — see "MongoDB" below) instead of the
+  static `test-data/schedule_test_data.json`.
+- Preferences and run history: every chat-triggered solve saves the resulting
+  preference set (`preferences` collection) and logs a durable record of the
+  solve itself (`optimizer_runs` — CLAUDE.md's "why" log: objective, best
+  bound, gap, solve time, what was asked for). A fresh server start or a
+  brand-new browser tab restores your last-saved preferences instead of
+  resetting to the generic 8am-5pm default.
+
+If Mongo isn't configured, isn't seeded, or the client's IP isn't in Atlas's
+Network Access list, both fall back automatically — courses/tasks to the
+static file, preferences to that same generic default — loudly, not silently
+(check the Python process's startup log for which one it picked each time).
+A Mongo write failing never fails the chat request it's attached to; it only
+means that particular change doesn't survive a restart. An OpenAI key and the
+Python service are required for chat; there is one interpreter and one
+scheduling engine, with no simulated fallback.
+
+## MongoDB
+
+Course/task data now lives in the same Atlas cluster `backend/`'s Next.js app
+already uses. One-time setup:
+
+1. Confirm `backend/.env.local` has a working `MONGODB_URI`/`MONGODB_DB` (copy
+   from `backend/.env.example` if you don't have this file — see `backend/README.md`
+   for how to get a connection string).
+2. Make sure your current IP is in Atlas's **Network Access** list (Atlas UI →
+   Network Access → Add IP Address) — Mongo drivers fail this as a TLS handshake
+   error (`TLSV1_ALERT_INTERNAL_ERROR`), not a clean "unauthorized," which reads
+   confusingly like a code bug the first time you hit it. It isn't one.
+3. Seed Carlos's real test data once per cluster:
+   ```bash
+   cd backend/optimizer && source .venv/bin/activate && python seed_mongo.py
+   ```
+   Safe to re-run any time `test-data/schedule_test_data.json` changes — every
+   write is an upsert. `--wipe` clears this project's seeded docs first (tagged
+   `seed_source: "carlos_test_data"`, so it never touches `backend/lib/catalog.js`'s
+   own unrelated synthetic course catalog living in the same `courses` collection).
+
+No seeding step needed for preferences/run history — those write themselves the
+first time you use the demo (`backend/optimizer/mongo_state.py`, wired into
+`preference_pipeline.py`). There is one implicit demo user (`"demo-carlos"`,
+same as the seeded courses/tasks): sign-in gates who reaches the app, but the
+optimizer's own state is not yet keyed per account — a real per-account version
+keys these by a real `user_id` instead.
+
+See `backend/optimizer/mongo_loader.py` / `seed_mongo.py` (courses/tasks) and
+`mongo_state.py` (preferences/optimizer_runs) for the field mapping and exactly
+what is (and isn't) read from/written to Mongo.
 
 ## Sign in with CMU (Google OAuth)
 

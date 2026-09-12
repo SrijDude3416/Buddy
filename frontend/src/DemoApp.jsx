@@ -4,7 +4,7 @@ import { ThemeProvider } from './state/ThemeProvider.jsx';
 import { PlanProvider, usePlan } from './state/PlanProvider.jsx';
 import { ChatProvider, useChat } from './state/ChatProvider.jsx';
 import { AuthProvider, useAuth } from './state/AuthProvider.jsx';
-import { preferencesApi } from './lib/api/index.js';
+import { preferencesApi, planApi } from './lib/api/index.js';
 import { Onboarding } from './pages/Onboarding.jsx';
 import { PlanPage } from './pages/PlanPage.jsx';
 import { TaskDetail } from './pages/TaskDetail.jsx';
@@ -24,7 +24,21 @@ function Demo({ initial, onReset }) {
   const [notice, setNotice] = useState('');
   const [task, setTask] = useState(null);
   const [answers, setAnswers] = useState(initial.answers);
+  const [recalculating, setRecalculating] = useState(false);
   async function confirm(next) {
+    // The server already computed `initial.plan` once for these exact
+    // answers on this page load (Python's GET /preferences/defaults --
+    // itself a cache hit against MongoDB when nothing's changed, not a
+    // fresh solve). Re-submitting the *same* answers through POST
+    // /preferences would force a second, redundant ~15s CP-SAT solve for a
+    // result the browser is already holding. Only actually solve again when
+    // the answers changed (via "Customize").
+    if (next === initial.answers) {
+      setFromPayload(initial.plan);
+      setNotice('');
+      setPhase('calendar');
+      return;
+    }
     setBusy(true); setError(null); setAnswers(next);
     try {
       const result = await preferencesApi.confirm(next);
@@ -32,6 +46,18 @@ function Demo({ initial, onReset }) {
       setNotice(result.notice);
       setPhase('calendar');
     } catch (e) { setError(e); } finally { setBusy(false); }
+  }
+  // Forces a fresh CP-SAT solve with the CURRENT preferences and no new
+  // operations -- no OpenAI round-trip, since nothing is being interpreted,
+  // just re-run. The explicit escape hatch for when a page load's cached
+  // plan (or the merged-in past) isn't what someone wants to see anymore.
+  async function recalculate() {
+    setRecalculating(true); setError(null);
+    try {
+      const result = await planApi.recalculate(payload.preferences, payload.courses.map(c => c._id));
+      setFromPayload(result.plan);
+      setNotice('Recalculated with your current preferences.');
+    } catch (e) { setError(e); } finally { setRecalculating(false); }
   }
   return <main className="min-h-screen p-4 sm:p-6 text-stone-900 dark:text-stone-100">
     <div className={phase === 'calendar' ? 'max-w-6xl mx-auto' : 'max-w-xl mx-auto py-10'}>
@@ -58,10 +84,12 @@ function Demo({ initial, onReset }) {
             harness, not the student's week — it should never compete with the
             calendar for attention. */}
         {lastChange && <p role="status" className="mb-4 px-3 py-2 rounded-lg bg-emerald-50/70 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-200 text-sm">Calendar rebuilt by CP-SAT · {lastChange.preferenceCalls.length} preference API calls applied.</p>}
+        {error && <ErrorNotice error={error} onRetry={recalculate} />}
         {task ? <TaskDetail taskId={task} onBack={() => setTask(null)} /> : <PlanPage onOpenTask={setTask} />}
         <div className="mt-8 pt-4 border-t border-stone-200 dark:border-stone-800 text-xs text-stone-400 dark:text-stone-600 space-y-2">
           <p>
             <button disabled={sending} onClick={onReset} className="underline">Reset demo</button>
+            {' · '}<button disabled={sending || recalculating} onClick={recalculate} className="underline">{recalculating ? 'Recalculating…' : 'Recalculate'}</button>
             {lastChange && <> · <button disabled={sending} onClick={undo} className="underline">Undo last schedule change</button></>}
             {' · '}Demo week: September 12–25, 2026 · {initial.mode === 'openai' ? 'OpenAI + CP-SAT enabled' : 'OpenAI key not configured'} · changes stay in this tab.
           </p>

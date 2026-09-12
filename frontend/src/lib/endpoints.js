@@ -43,6 +43,13 @@ export const endpoints = {
   // --- the plan (courses + tasks + sessions, schema-shaped) ----------------
   // GET -> { courses, tasks, sessions, run }
   getPlan: { method: 'GET', path: () => '/plan' },
+  // POST body: { preferences, course_ids } -> { preferences, preference_calls, plan }
+  // Re-solves with the CURRENT preferences and zero new operations -- the
+  // "Recalculate" button's endpoint. No OpenAI round-trip: nothing is being
+  // interpreted, just re-run. GET /preferences already skips solving on a
+  // normal page load when a cached plan exists; this is the explicit,
+  // user-requested way to force a fresh one anyway.
+  recalculatePlan: { method: 'POST', path: () => '/plan/recalculate' },
 
   // --- session-level actions ----------------------------------------------
   patchSession: { method: 'PATCH', path: ({ sessionId }) => `/sessions/${sessionId}` },
