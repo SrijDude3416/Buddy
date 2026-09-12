@@ -9,3 +9,10 @@ dist
 
 # graphify generated artifacts
 graphify-out
+
+.DS_Store
+__pycache__/
+*.pyc
+.venv/
+backend/optimizer/output_*.json
+node_modules/

@@ -96,64 +96,39 @@ violates one of these as a regression, not a simplification, even if it looks cl
 ### Repo layout (target — not all of this exists yet)
 
 ```
-/frontend            React 19 + Tailwind + Vite — see "Frontend" below
-/backend             Next.js 16 API + auth
-  /app/api            route handlers: 14 routes matching frontend/src/lib/endpoints.js
-  /lib                mongo, session, google (OAuth), runs, planEngine, seed
-  /optimizer          CP-SAT model + preference compiler registry (Python)
-  /pipeline           Canvas scraping + syllabus parsing (per-semester job) — not yet
-/docs/prototype      the original single-file MVP, kept as a design reference
+/frontend            React + Tailwind app (see "Frontend" below)
+/backend
+  /api                Next.js API routes
+  /optimizer          CP-SAT model + preference compiler registry (Python) — deployed
+                      as its own standalone service, not a Vercel function; see
+                      "Scheduling engine (CP-SAT)" below
+  /pipeline           Canvas scraping + syllabus parsing (per-semester job)
+/test-data           Sample tasks/courses data (see test-data/README.md) — lives at
+                     root, not under /frontend or /backend, so every branch can read
+                     it without depending on another branch's directory
 SCHEMA.md            MongoDB schema — source of truth for collection shapes
+PREFERENCE_API.md    the AI-facing tool spec — what Gemini calls, and why each
+                     weight is the number it is. Self-contained; start there for
+                     anything about how chat feedback becomes a schedule change.
 CLAUDE.md            this file
 ```
 
-**There is no npm project at the repo root, deliberately.** `frontend/` and `backend/`
-each own their dependencies. A root `package.json` existed briefly and declared its own
-copies of `react` and `lucide-react` at versions that disagreed with `frontend/` — two
-conflicting declarations of the same libraries, which is exactly the confusion a root
-manifest invites when nothing at the root is actually built. Don't reintroduce one; if
-shared tooling is ever needed, make it a workspace on purpose rather than by accident.
+What exists today, produced during MVP/design work and worth using as a reference
+implementation (none of it is wired to a real backend yet):
 
-### Versions
-
-Both halves track current majors and must agree on React, since the frontend's render
-tests import React directly and Next bundles its own copy: **React 19.3**, Vite 8,
-Next 16, MongoDB driver 7, jose 6, lucide-react 1.x. Tailwind is deliberately held at
-**3.4.x** — Tailwind 4 moves configuration into CSS (`@import "tailwindcss"`, `@theme`,
-`@custom-variant dark` instead of `tailwind.config.js` and `@tailwind` directives), so
-it is a real migration of every surface in the app rather than a version bump. Worth
-doing, but not in the same change as anything else.
-
-`esbuild` is an explicit devDependency of `frontend/`, not a transitive one. The smoke
-runner imports it directly, and it only appeared to work before because Vite 5 hoisted
-it; Vite 8 does not.
-
-### The frontend/backend seam
-
-`frontend/src/lib/endpoints.js` is the contract: every route, method and path in one
-table. `backend/app/api/**/route.js` mirrors it one-for-one, and the mock handlers in
-`frontend/src/lib/mock/handlers.js` are keyed by the same names. Three implementations of
-one contract, which is what lets `VITE_API_MODE=mock` keep the app fully demo-able with
-no cluster, no Google client and no network — a backend outage can never take the demo
-down with it. **When you add a route, add it in all three places or the check in
-`frontend/scripts/` that pairs them will fail.**
-
-Document ids: `users`, `preferences`, `chat_messages` and `optimizer_runs` use
-Mongo-generated ObjectIds. `tasks` and `sessions` use the readable strings
-`backend/lib/planEngine.js` generates (`sess_f3db2580d02`), which carry a random segment
-precisely because a per-process counter would hand two users the same id. Do not wrap
-those in `new ObjectId(...)` — it will 404 every real session.
-
-Reference material, as distinct from the live app:
-
-- **`docs/prototype/buddy-mvp.jsx`** — the original single-file React/Tailwind
-  prototype. Superseded by `frontend/`, kept because its comments record *why* several
-  layout decisions were made. Do not develop against it.
-- **`SCHEMA.md`** — MongoDB schema, v2. Still the source of truth for collection shapes.
-- **`backend/optimizer/scheduler_core.py`** — CP-SAT sketch: the
-  preference-compiler-registry pattern, a `reify_window` helper, and a working
-  `build_and_solve` assembly function. Not yet called by the API — `backend/lib/runs.js`
-  is the seam where it plugs in.
+- **Frontend MVP** (`buddy-mvp.jsx`) — full React/Tailwind prototype: onboarding, the
+  post-onboarding "first look" (three interchangeable views of one generated plan),
+  the main Plan/Classes hub, task detail, and the chat sidebar. Runs entirely on mock
+  in-memory data; every place a real API call belongs is marked with a
+  `// In production: ...` comment.
+- **`SCHEMA.md`** — MongoDB schema, v2, feature-aligned with the MVP.
+- **`backend/optimizer/`** — a real, running CP-SAT prototype against
+  `test-data/schedule_test_data.json`: the preference-compiler-registry pattern
+  (`preferences.py`, with a correctly bidirectional `reify_window`), placement
+  (`scheduler.py`), and an eval harness (`eval.py`) that turns a solve into concrete
+  numbers instead of an eyeballed calendar. See `backend/optimizer/README.md` for what
+  a preference-tuning pass actually found (a duration-rounding bug, an objective-scaling
+  bug, and a real modeling gap around fixed-time exams — still open, see below).
 
 ## Frontend
 
@@ -268,6 +243,22 @@ answers or chat history needs a second copy — `preferences` entries with `sour
 
 ## Scheduling engine (CP-SAT)
 
+**Deployment**: the optimizer is not a Vercel Python serverless function. OR-Tools' CP-SAT
+binary is heavy enough (native wheel size, cold start) and a solve can occasionally run long
+enough that it's a poor fit for serverless size/timeout limits — and a serverless function
+can't hold any state between calls anyway. It runs as its own always-on FastAPI service
+(Railway/Render/Fly.io-class host, not Vercel), called over plain HTTP by the Next.js
+backend, same as any other third-party API.
+
+**Time horizon**: solves run on a rolling weekly window in 15-minute slots, not the whole
+semester up front. This falls directly out of the feedback loop being the core UX
+(chat feedback → new `preferences` entry → re-solve): a semester-wide solve is slower to
+re-run on every message and, worse, could reshuffle sessions far outside the window the
+feedback was even about — including ones already `completed` or `locked`. Deadlines beyond
+the current window still constrain the solve, but only as a rough "hours still owed to this
+task/course" capacity reservation, not slot-level placement — the slot-level plan for a
+future week doesn't exist until that week's own solve runs.
+
 Two-stage pipeline, deliberately kept separate:
 
 1. **Task → session decomposition** (heuristic, not solved). Given a task's total
@@ -277,20 +268,36 @@ Two-stage pipeline, deliberately kept separate:
    classic placement problem instead of a much harder joint splitting-and-placement
    problem, which matters for keeping re-solves fast enough to run on every chat message.
 2. **Placement** (CP-SAT). Given already-sized sessions, immovable fixed blocks, and a
-   set of preferences, decide start times.
+   set of preferences, decide start times within the current week's window.
 
-Core mechanics (see `scheduler_core.py` for the actual code):
+Core mechanics (see `backend/optimizer/scheduler.py` and `preferences.py` for the
+actual, running code — no longer just a sketch):
 
 - Every session — fixed or flexible — is an `IntervalVar` in one shared list, and
   `AddNoOverlap` over that list is the *only* mechanism needed for "class times are
-  immovable." No special-casing elsewhere.
+  immovable." No special-casing elsewhere. This now also covers personal routine
+  blocks (gym, meals — CLAUDE.md's onboarding "outside commitments" question feeds
+  this), materialized exactly like `courses.meeting_times`, not just class times.
+- **Working hours (e.g. 8am–11pm) bound *flexible* sessions directly, never as a
+  shared blackout interval.** An early version modeled "off-hours" as a mandatory
+  interval everything had to avoid overlapping — reasonable until a real fixed
+  commitment (gym at 6:30am) existed outside that window, at which point two
+  mandatory, always-overlapping intervals made the *entire* model infeasible, not
+  just one session. The fix: constrain each flexible session's own start/end
+  directly; fixed/personal/course blocks are restricted only by not overlapping
+  other intervals, never by time-of-day. General lesson: a mandatory mutual-exclusion
+  interval is only safe when nothing legitimately fixed can ever sit inside it.
 - A flexible session's start variable is domain-bounded by its deadline
-  (`latest_start = deadline_slot - duration_slots`) — infeasibility here means "this
-  genuinely can't be scheduled in time," which is worth surfacing, not hiding.
+  (`latest_start = deadline_slot - duration_slots`, slots = 15 minutes) — infeasibility
+  here means "this genuinely can't be scheduled in time," which is worth surfacing, not
+  hiding.
 - **Preference compiler registry**: each preference `type` has exactly one
   hand-written, unit-testable compiler function that turns `(value, weight)` into
   either a hard constraint or a list of bounded `(coefficient, BoolVar)` objective
   terms. This is the entire surface area where LLM-derived input enters the solver.
+  **`PREFERENCE_API.md`** is the AI-facing spec for this boundary — every tool Gemini
+  can call, why `weight` is never exposed as a raw number (see its §2), and which
+  registry types are deliberately *not* tool-exposed (always-on defaults instead).
 - **Reification direction matters and is easy to get quietly wrong.** A one-directional
   boolean implication is safe for a reward term but silently broken for a penalty term
   (the solver can dodge the penalty for free). `reify_window` fully reifies both
@@ -306,6 +313,34 @@ Core mechanics (see `scheduler_core.py` for the actual code):
 - **`objective_value` / `best_bound` / `gap` is a real, honest "% optimized" stat** —
   CP-SAT reports a provable upper bound even when it can't prove optimality within the
   time limit, so `gap` is a legitimate claim to show the user, not a fudged number.
+- **An earliest-start bound must round its slot index UP, never down** — the mirror
+  image of durations rounding up rather than to nearest. A lecture ending at 20:20
+  floors to the 20:15 slot; using that as a "review session can't start before this"
+  bound let the review start 5 real minutes before the lecture it was reviewing had
+  even ended. Flooring is the safe direction for a *deadline* (never allows running
+  late); it is not safe for a *not-before* bound (it allows starting early).
+- **A cross-session cumulative constraint (e.g. "no more than 2 hours of work without
+  a real break") is O(sessions²) by nature** — every session's running "streak" has to
+  check every other session as a candidate predecessor. This scales badly fast; the
+  first version of this (see `backend/optimizer/README.md`) couldn't find a feasible
+  solution at all at ~100 sessions until preference-linearization and a targeted
+  exclusion (light review sessions don't count as "grinding work") brought it back
+  under control. Budget for this cost explicitly before adding another one.
+- **When `presence` is false, the output block's `kind` must be explicitly relabeled**
+  to `"unplaced"` — it doesn't happen automatically, and every report/eval filter keys
+  on `kind`. Get this wrong and a genuinely-lost session just disappears from every
+  view instead of surfacing as "competed and lost," silently violating the "worth
+  surfacing, not hiding" principle above.
+- **Any objective term built from a session's own `start`/`minute_of_day` needs its
+  numeric range checked against `PRESENCE_WEIGHT`, every time a new one is added, not
+  just the first.** This exact bug (an "earlier is better" term using the fine-grained
+  slot instead of the coarse day) has now shipped twice — once as the original
+  placeholder tie-break, once again in `urgency_priority`, where a single urgent
+  session's reward briefly exceeded `PRESENCE_WEIGHT` and made the solver sacrifice an
+  unrelated session's *placement* to chase it — a broken tier order, not just an
+  aesthetic tie-break failure. `-day` (range ~14) is safe by construction where
+  `-start`/`-minute_of_day` (range ~100-1300) is not. Check this before trusting a new
+  preference's behavior, don't wait to notice the symptom.
 
 **Open decision, not yet made**: preferences currently blend into one weighted sum,
 so a strong `avoid_block` penalty and a weak `preferred_hours` reward can trade off in
@@ -319,6 +354,17 @@ sessions' `duration_min` rather than ground truth. Once `actual_time_logged_min`
 feedback exists, decide whether refinement writes back into individual
 `sessions.duration_min` values or only adjusts the task-level rollup — that decision
 changes who's allowed to touch a not-yet-`locked` session document.
+
+**Open gap, found while preference-tuning against real data, not yet fixed**: an exam
+(`splittable: false`, a `due_at`) is still just a flexible task to the optimizer —
+`splittable: false` only affects how many sessions `decompose.py` produces, it says
+nothing about whether the *time itself* is a decision. Result: a real prototype run
+placed "Midterm 1" at 8pm four days before the actual exam, which is meaningless — an
+exam happens at one specific, non-negotiable time, the same way a lecture does. This
+needs a schema answer, not a new preference: most likely, exam-type tasks should
+materialize as locked blocks the same way `courses.meeting_times` do (see `SCHEMA.md`),
+rather than ever entering the optimizer as a `tasks` document at all. See
+`backend/optimizer/README.md` for the specific run this showed up in.
 
 ## Hackathon pitch (for whoever demos this)
 

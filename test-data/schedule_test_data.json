@@ -1,0 +1,438 @@
+{
+  "generated_at": "2026-09-12T14:00:00-04:00",
+  "courses": [
+    {
+      "id": "math-found",
+      "name": "15151 Math Foundations",
+      "meeting_times": [
+        { "days": ["Mon", "Wed", "Fri"], "start_time": "13:00", "end_time": "13:50", "location": "GHC-4401" },
+        { "days": ["Tue"], "start_time": "17:00", "end_time": "17:50", "location": "GHC-4102" }
+      ]
+    },
+    {
+      "id": "matrices",
+      "name": "21241 Matrices",
+      "meeting_times": [
+        { "days": ["Mon", "Wed", "Fri"], "start_time": "09:00", "end_time": "09:50", "location": "HOA-160" },
+        { "days": ["Tue"], "start_time": "15:00", "end_time": "15:50", "location": "PH-A18C" }
+      ]
+    },
+    {
+      "id": "imp-comp",
+      "name": "15122 Imperative Computation",
+      "meeting_times": [
+        { "days": ["Tue"], "start_time": "09:30", "end_time": "10:50", "location": "GHC-4401" },
+        { "days": ["Tue"], "start_time": "19:00", "end_time": "19:35", "location": "DH-2210" },
+        { "days": ["Fri"], "start_time": "17:00", "end_time": "17:50", "location": "WEH-4708" }
+      ]
+    },
+    {
+      "id": "fye-immig",
+      "name": "07128 First-Year Immigration",
+      "meeting_times": [
+        { "days": ["Mon", "Wed"], "start_time": "16:00", "end_time": "16:50", "location": "GHC-4401" }
+      ]
+    },
+    {
+      "id": "gpi",
+      "name": "07131 Great Practical Ideas for Computer Scientists",
+      "meeting_times": [
+        { "days": ["Fri"], "start_time": "16:00", "end_time": "16:50", "location": "GHC-4401" }
+      ]
+    },
+    {
+      "id": "hum-intel",
+      "name": "88230 Human Intelligence & Stupidity",
+      "meeting_times": [
+        { "days": ["Mon", "Wed"], "start_time": "19:00", "end_time": "20:20", "location": "POS-153" }
+      ]
+    }
+  ],
+  "tasks": [
+    {
+      "id": "mx-recitation-quiz1",
+      "course_id": "matrices",
+      "title": "Recitation Quiz 1",
+      "due_at": "2026-09-01T15:00:00-04:00",
+      "est_duration_min": 60,
+      "est_duration_is_guess": true,
+      "splittable": false,
+      "status": "done",
+      "notes": "Already Completed in Notion. This item had no Hours Remaining recorded, so duration was estimated by analogy to other Recitation Quiz entries in the same course that did have 1 hr recorded. Due time (3pm) follows the standard recitation slot for this course."
+    },
+    {
+      "id": "fye-calendar-effectively",
+      "course_id": "fye-immig",
+      "title": "Using a Calendar Effectively",
+      "due_at": "2026-09-02T17:00:00-04:00",
+      "est_duration_min": 60,
+      "est_duration_is_guess": true,
+      "splittable": false,
+      "status": "done",
+      "notes": "Already Completed in Notion. No Hours Remaining recorded (typical for finished items). Estimated ~1hr from the task description ('Block out calendar hour by hour and submit a screenshot'). Due time guessed (5pm) — Notion gave no time and this course has no lecture-adjacent anchor in the dataset."
+    },
+    {
+      "id": "hi-response-paper1",
+      "course_id": "hum-intel",
+      "title": "Response Paper 1 Due",
+      "due_at": "2026-09-13T17:00:00-04:00",
+      "est_duration_min": 150,
+      "est_duration_is_guess": false,
+      "splittable": true,
+      "status": "in_progress",
+      "notes": "Notion status already 'In Progress'. Duration from Notion (Hours Remaining: 2.5). Due time (5pm) explicit in Notion notes."
+    },
+    {
+      "id": "ic-pg2",
+      "course_id": "imp-comp",
+      "title": "PG2 Due",
+      "due_at": "2026-09-13T22:00:00-04:00",
+      "est_duration_min": 60,
+      "est_duration_is_guess": false,
+      "splittable": true,
+      "status": "in_progress",
+      "notes": "Notion status already 'In Progress'. Duration from Notion (Hours Remaining: 1). Notion gave no time or notes for this item; guessed 10pm Sunday as a common CS-course submission deadline pattern — a real guess, not derived from anything in Notion."
+    },
+    {
+      "id": "mf-weak-induction",
+      "course_id": "math-found",
+      "title": "Section 4.2: Weak Induction",
+      "due_at": "2026-09-14T12:30:00-04:00",
+      "est_duration_min": 60,
+      "est_duration_is_guess": false,
+      "splittable": true,
+      "status": "not_started",
+      "notes": "Duration from Notion (Hours Remaining: 1). Notes say 'Before Lecture 10' with no time; guessed 12:30, just ahead of this course's 13:00 MWF lecture."
+    },
+    {
+      "id": "hi-effects-of-intelligence",
+      "course_id": "hum-intel",
+      "title": "Effects of Intelligence",
+      "due_at": "2026-09-14T18:30:00-04:00",
+      "est_duration_min": 45,
+      "est_duration_is_guess": false,
+      "splittable": true,
+      "status": "not_started",
+      "notes": "Notion status is 'Triaged', which doesn't map cleanly onto the requested enum — treated as not_started since real work hasn't begun. Duration from Notion (Hours Remaining: 0.75). Time-of-day guessed as just before this course's 19:00 MW lecture."
+    },
+    {
+      "id": "ic-ch3-checkin",
+      "course_id": "imp-comp",
+      "title": "CH3 (Checkin)",
+      "due_at": "2026-09-15T09:00:00-04:00",
+      "est_duration_min": 45,
+      "est_duration_is_guess": false,
+      "splittable": true,
+      "status": "not_started",
+      "notes": "Notion status is 'Triaged' — treated as not_started (see note on other Triaged items). Duration from Notion (Hours Remaining: 0.75). No time given in Notion; guessed before the Tuesday lecture (09:30). Unclear whether these Checkin quizzes are fixed in-class events or self-paced online — left splittable true."
+    },
+    {
+      "id": "mx-recitation-quiz3",
+      "course_id": "matrices",
+      "title": "Recitation Quiz 3",
+      "due_at": "2026-09-15T15:00:00-04:00",
+      "est_duration_min": 60,
+      "est_duration_is_guess": false,
+      "splittable": false,
+      "status": "not_started",
+      "notes": "Notion Hours Remaining (1 hr) likely represents study/prep time rather than the 25-min quiz itself, used as-is. Marked non-splittable since it represents a fixed in-class event (25-min quiz in recitation, 3pm, PH A18C per Notion notes). Due time explicit in Notion."
+    },
+    {
+      "id": "mf-hw3-due",
+      "course_id": "math-found",
+      "title": "HW3 Due",
+      "due_at": "2026-09-16T23:59:00-04:00",
+      "est_duration_min": 645,
+      "est_duration_is_guess": false,
+      "splittable": true,
+      "status": "in_progress",
+      "notes": "Notion status already 'In Progress'. Duration from Notion (Hours Remaining: 10.75) used as-is even though it's unusually large compared to other items — this is a real graded problem set (not one of the optional weekly readings), so a bigger multi-session estimate seems plausible, but flagging it as a notable outlier. Notion gave no due time; guessed 11:59pm as a generic homework-portal deadline."
+    },
+    {
+      "id": "mf-4-3-strong-induction",
+      "course_id": "math-found",
+      "title": "Section 4.3: Strong Induction",
+      "due_at": "2026-09-16T12:30:00-04:00",
+      "est_duration_min": 60,
+      "est_duration_is_guess": false,
+      "splittable": true,
+      "status": "not_started",
+      "notes": "Notes say 'Before Lecture 11'. Duration from Notion (Hours Remaining: 1). Time-of-day guessed as before the 13:00 lecture."
+    },
+    {
+      "id": "hi-human-vs-artificial",
+      "course_id": "hum-intel",
+      "title": "Human Intelligence vs Artificial Intelligence",
+      "due_at": "2026-09-16T18:30:00-04:00",
+      "est_duration_min": 90,
+      "est_duration_is_guess": false,
+      "splittable": true,
+      "status": "not_started",
+      "notes": "Duration from Notion (Hours Remaining: 1.5). Time-of-day guessed as before the 19:00 lecture."
+    },
+    {
+      "id": "ic-pr3",
+      "course_id": "imp-comp",
+      "title": "PR3 Due",
+      "due_at": "2026-09-17T22:00:00-04:00",
+      "est_duration_min": 60,
+      "est_duration_is_guess": false,
+      "splittable": true,
+      "status": "not_started",
+      "notes": "Duration from Notion (Hours Remaining: 1). No notes or time given, and this due date (Thursday) doesn't line up with any 15122 meeting in the calendar; guessed a generic 10pm submission-portal deadline."
+    },
+    {
+      "id": "mx-weekly-hw4",
+      "course_id": "matrices",
+      "title": "Weekly HW 4 (Optional)",
+      "due_at": "2026-09-18T17:00:00-04:00",
+      "est_duration_min": 150,
+      "est_duration_is_guess": false,
+      "splittable": true,
+      "status": "not_started",
+      "notes": "Duration from Notion (Hours Remaining: 2.5). Due time (5pm) explicit in Notion notes ('due 5pm on Gradescope')."
+    },
+    {
+      "id": "mf-4-3-strong-induction-cont-l13",
+      "course_id": "math-found",
+      "title": "Section 4.3: Strong Induction (Continued)",
+      "due_at": "2026-09-18T12:30:00-04:00",
+      "est_duration_min": 60,
+      "est_duration_is_guess": false,
+      "splittable": true,
+      "status": "not_started",
+      "notes": "This is the 'Before Lecture 13' occurrence — Notion has two separate items titled 'Section 4.3: Strong Induction (Continued)' (this one and Lecture 14's, five days later), disambiguated here by id/lecture number. Duration from Notion (Hours Remaining: 1). Time-of-day guessed."
+    },
+    {
+      "id": "ic-pg3",
+      "course_id": "imp-comp",
+      "title": "PG3 Due",
+      "due_at": "2026-09-20T23:59:00-04:00",
+      "est_duration_min": 120,
+      "est_duration_is_guess": true,
+      "splittable": true,
+      "status": "not_started",
+      "notes": "Notion recorded no Hours Remaining for this item. Estimated 2 hrs by rough analogy to PG2 (which had 1 hr recorded) — PG assignments look like programming assignments, so a somewhat larger estimate seemed reasonable, but this is a genuine guess. Due date is a Sunday with no class that day; guessed a near-midnight submission deadline."
+    },
+    {
+      "id": "mf-midterm1",
+      "course_id": "math-found",
+      "title": "Midterm 1",
+      "due_at": "2026-09-21T13:00:00-04:00",
+      "est_duration_min": 50,
+      "est_duration_is_guess": true,
+      "splittable": false,
+      "status": "not_started",
+      "notes": "Notion recorded no Hours Remaining and no notes for this Exam-type item. Assumed it's given during the normal Monday lecture slot (13:00, 50 min) rather than a separate evening exam block — genuinely uncertain. Marked non-splittable since an exam is a fixed sitting, not flexible work."
+    },
+    {
+      "id": "hi-human-vs-animal",
+      "course_id": "hum-intel",
+      "title": "Human Intelligence vs Animal Intelligence",
+      "due_at": "2026-09-21T18:30:00-04:00",
+      "est_duration_min": 90,
+      "est_duration_is_guess": false,
+      "splittable": true,
+      "status": "not_started",
+      "notes": "Duration from Notion (Hours Remaining: 1.5). Time-of-day guessed as before the 19:00 lecture."
+    },
+    {
+      "id": "mx-recitation-quiz4",
+      "course_id": "matrices",
+      "title": "Recitation Quiz 4",
+      "due_at": "2026-09-22T15:00:00-04:00",
+      "est_duration_min": 60,
+      "est_duration_is_guess": false,
+      "splittable": false,
+      "status": "not_started",
+      "notes": "Same reasoning as Recitation Quiz 3 (fixed in-class event, 3pm, PH A18C — time explicit in Notion)."
+    },
+    {
+      "id": "ic-ch4-checkin",
+      "course_id": "imp-comp",
+      "title": "CH4 (Checkin)",
+      "due_at": "2026-09-22T09:00:00-04:00",
+      "est_duration_min": 120,
+      "est_duration_is_guess": false,
+      "splittable": true,
+      "status": "not_started",
+      "notes": "Duration from Notion (Hours Remaining: 2). Time-of-day guessed before the Tuesday lecture, same reasoning as CH3."
+    },
+    {
+      "id": "mf-4-3-strong-induction-cont-l14",
+      "course_id": "math-found",
+      "title": "Section 4.3: Strong Induction (Continued)",
+      "due_at": "2026-09-23T12:30:00-04:00",
+      "est_duration_min": 60,
+      "est_duration_is_guess": false,
+      "splittable": true,
+      "status": "not_started",
+      "notes": "This is the 'Before Lecture 14' occurrence of the same title as mf-4-3-strong-induction-cont-l13 (Lecture 13, due 9/18) — Notion really does have two separately-tracked items with identical names. Duration from Notion (Hours Remaining: 1). Time-of-day guessed."
+    },
+    {
+      "id": "hi-intro-to-stupidity",
+      "course_id": "hum-intel",
+      "title": "Intro to Stupidity",
+      "due_at": "2026-09-23T18:30:00-04:00",
+      "est_duration_min": 90,
+      "est_duration_is_guess": false,
+      "splittable": true,
+      "status": "not_started",
+      "notes": "Duration from Notion (Hours Remaining: 1.5). Time-of-day guessed as just before the 19:00 MW lecture."
+    },
+    {
+      "id": "ic-pr4",
+      "course_id": "imp-comp",
+      "title": "PR4 Due",
+      "due_at": "2026-09-24T22:00:00-04:00",
+      "est_duration_min": 60,
+      "est_duration_is_guess": false,
+      "splittable": true,
+      "status": "not_started",
+      "notes": "Duration from Notion (Hours Remaining: 1). Same guessed-deadline reasoning as PR3 (no notes/time in Notion, due date doesn't align with a class meeting)."
+    },
+    {
+      "id": "mx-exam1",
+      "course_id": "matrices",
+      "title": "Exam 1",
+      "due_at": "2026-09-25T09:00:00-04:00",
+      "est_duration_min": 50,
+      "est_duration_is_guess": true,
+      "splittable": false,
+      "status": "not_started",
+      "notes": "Notion recorded no Hours Remaining or notes. Assumed given during the normal Friday lecture slot (09:00, 50 min) — genuinely uncertain, could instead be a dedicated evening exam block. Marked non-splittable as a fixed sitting."
+    },
+    {
+      "id": "mx-weekly-hw5",
+      "course_id": "matrices",
+      "title": "Weekly HW 5 (Optional)",
+      "due_at": "2026-09-25T17:00:00-04:00",
+      "est_duration_min": 150,
+      "est_duration_is_guess": false,
+      "splittable": true,
+      "status": "not_started",
+      "notes": "Duration from Notion (Hours Remaining: 2.5). Due time (5pm) explicit in Notion notes."
+    },
+    {
+      "id": "mf-5-1-relations",
+      "course_id": "math-found",
+      "title": "Section 5.1: Relations",
+      "due_at": "2026-09-25T12:30:00-04:00",
+      "est_duration_min": 60,
+      "est_duration_is_guess": false,
+      "splittable": true,
+      "status": "not_started",
+      "notes": "Notes say 'Before Lecture 15'. Duration from Notion (Hours Remaining: 1). Time-of-day guessed."
+    },
+    {
+      "id": "hi-assignment1",
+      "course_id": "hum-intel",
+      "title": "Assignment 1 Due",
+      "due_at": "2026-10-04T17:00:00-04:00",
+      "est_duration_min": 300,
+      "est_duration_is_guess": true,
+      "splittable": true,
+      "status": "not_started",
+      "notes": "Far-future item kept for variety. Notion gave no Hours Remaining. Estimated 5 hrs based on the assignment being an individual paper up to 7 pages (per Notion notes) — a bigger writing project than the ~2.5hr response papers. Due time (5pm) explicit in Notion notes."
+    },
+    {
+      "id": "ic-ch7-checkin",
+      "course_id": "imp-comp",
+      "title": "CH7 (Checkin)",
+      "due_at": "2026-10-20T09:00:00-04:00",
+      "est_duration_min": 120,
+      "est_duration_is_guess": false,
+      "splittable": true,
+      "status": "not_started",
+      "notes": "Far-future item kept for variety. Duration from Notion (Hours Remaining: 2). Time-of-day guessed, same reasoning as CH3/CH4."
+    },
+    {
+      "id": "mx-weekly-hw9",
+      "course_id": "matrices",
+      "title": "Weekly HW 9 (Optional)",
+      "due_at": "2026-10-30T17:00:00-04:00",
+      "est_duration_min": 150,
+      "est_duration_is_guess": false,
+      "splittable": true,
+      "status": "not_started",
+      "notes": "Far-future item kept for variety. Duration from Notion (Hours Remaining: 2.5). Due time (5pm) explicit in Notion notes."
+    },
+    {
+      "id": "mf-6-2-countable",
+      "course_id": "math-found",
+      "title": "Section 6.2: Countable and Uncountable Sets",
+      "due_at": "2026-11-06T12:30:00-05:00",
+      "est_duration_min": 60,
+      "est_duration_is_guess": false,
+      "splittable": true,
+      "status": "not_started",
+      "notes": "Far-future item kept for variety. Duration from Notion (Hours Remaining: 1). Time-of-day guessed. Timezone switches to -05:00 (EST) after the Nov 1 DST change."
+    },
+    {
+      "id": "hi-assignment2",
+      "course_id": "hum-intel",
+      "title": "Assignment 2 Due",
+      "due_at": "2026-11-15T17:00:00-05:00",
+      "est_duration_min": 300,
+      "est_duration_is_guess": true,
+      "splittable": true,
+      "status": "not_started",
+      "notes": "Far-future item kept for variety. Same item type/format as Assignment 1 (individual, 7pg max); duration estimate carried over since Notion didn't record one."
+    },
+    {
+      "id": "ic-ch13-checkin",
+      "course_id": "imp-comp",
+      "title": "CH13 (Checkin)",
+      "due_at": "2026-12-01T09:00:00-05:00",
+      "est_duration_min": 120,
+      "est_duration_is_guess": false,
+      "splittable": true,
+      "status": "not_started",
+      "notes": "Far-future item kept for variety — appears to be the last Checkin of the term. Duration from Notion (Hours Remaining: 2). Time-of-day guessed."
+    },
+    {
+      "id": "mx-recitation-quiz13",
+      "course_id": "matrices",
+      "title": "Recitation Quiz 13",
+      "due_at": "2026-12-01T15:00:00-05:00",
+      "est_duration_min": 60,
+      "est_duration_is_guess": false,
+      "splittable": false,
+      "status": "not_started",
+      "notes": "Far-future item kept for variety. Notion notes flag this as 'assumed last quiz of term; not explicitly confirmed by syllabus.' Same splittable reasoning as other recitation quizzes."
+    },
+    {
+      "id": "mf-more-probability",
+      "course_id": "math-found",
+      "title": "Some More Probability",
+      "due_at": "2026-12-02T12:30:00-05:00",
+      "est_duration_min": 60,
+      "est_duration_is_guess": false,
+      "splittable": true,
+      "status": "not_started",
+      "notes": "Far-future item kept for variety — last reading of term per Notion notes ('final class before review for Final Exam'). Duration from Notion (1 hr). Time-of-day guessed."
+    },
+    {
+      "id": "hi-rpp-extra-credit",
+      "course_id": "hum-intel",
+      "title": "RPP Extra Credit Deadline",
+      "due_at": "2026-12-04T23:59:00-05:00",
+      "est_duration_min": 15,
+      "est_duration_is_guess": true,
+      "splittable": false,
+      "status": "not_started",
+      "notes": "Far-future item kept for variety. Notion gave this item no Type and no Hours Remaining — it's an administrative deadline ('All CBDR study credits must be allocated in Sona by 11:59pm ET'), not real coursework. Estimated a short atomic duration since it's just an online portal action. Due time explicit in Notion notes."
+    },
+    {
+      "id": "hi-response-paper5",
+      "course_id": "hum-intel",
+      "title": "Response Paper 5 Due",
+      "due_at": "2026-12-06T17:00:00-05:00",
+      "est_duration_min": 150,
+      "est_duration_is_guess": true,
+      "splittable": true,
+      "status": "not_started",
+      "notes": "Far-future item kept for variety. Notion didn't record Hours Remaining for this item specifically; estimated by analogy to Response Paper 1, which did have a recorded duration (2.5 hrs). Due time (5pm) explicit in Notion notes."
+    }
+  ]
+}

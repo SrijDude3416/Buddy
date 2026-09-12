@@ -1,0 +1,417 @@
+<title>Buddy Schedule Preview</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  :root {
+    color-scheme: light;
+    --page:        #f9f9f7;
+    --surface:     #fcfcfb;
+    --surface-2:   #f3f2ee;
+    --ink:         #0b0b0b;
+    --ink-2:       #52514e;
+    --ink-muted:   #898781;
+    --gridline:    #e1e0d9;
+    --baseline:    #c3c2b7;
+    --border:      rgba(11,11,11,0.10);
+    --accent:      #2a78d6;
+
+    --c1: #2a78d6; --c2: #eb6834; --c3: #1baf7a;
+    --c4: #eda100; --c5: #e87ba4; --c6: #008300;
+
+    --good: #0ca30c; --warning: #fab219; --serious: #ec835a; --critical: #d03b3b;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --page: #0d0d0d; --surface: #1a1a19; --surface-2: #232322;
+      --ink: #ffffff; --ink-2: #c3c2b7; --ink-muted: #898781;
+      --gridline: #2c2c2a; --baseline: #383835; --border: rgba(255,255,255,0.10);
+      --accent: #3987e5;
+      --c1: #3987e5; --c2: #d95926; --c3: #199e70;
+      --c4: #c98500; --c5: #d55181; --c6: #008300;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --page: #0d0d0d; --surface: #1a1a19; --surface-2: #232322;
+    --ink: #ffffff; --ink-2: #c3c2b7; --ink-muted: #898781;
+    --gridline: #2c2c2a; --baseline: #383835; --border: rgba(255,255,255,0.10);
+    --accent: #3987e5;
+    --c1: #3987e5; --c2: #d95926; --c3: #199e70;
+    --c4: #c98500; --c5: #d55181; --c6: #008300;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    background: var(--page);
+    color: var(--ink);
+    font-family: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+    font-size: 14px;
+    line-height: 1.45;
+  }
+  .serif { font-family: "Source Serif 4", Georgia, serif; }
+  .mono { font-family: "IBM Plex Mono", "SFMono-Regular", Menlo, monospace; font-variant-numeric: tabular-nums; }
+
+  .page { max-width: 1180px; margin: 0 auto; padding: 28px 24px 48px; display: flex; flex-direction: column; gap: 20px; }
+
+  /* ---------- header ---------- */
+  header {
+    display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 16px 24px;
+    padding-bottom: 16px; border-bottom: 1px solid var(--border);
+  }
+  header h1 { margin: 0; font-size: 26px; font-weight: 600; text-wrap: balance; }
+  header .subtitle { margin: 4px 0 0; color: var(--ink-2); font-size: 13.5px; max-width: 48ch; }
+  .header-right { display: flex; flex-direction: column; align-items: flex-end; gap: 10px; }
+
+  .toggle { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; padding: 2px; gap: 2px; background: var(--surface-2); }
+  .toggle button {
+    font: inherit; font-family: "IBM Plex Sans", sans-serif; font-size: 13px; font-weight: 500;
+    border: none; background: transparent; color: var(--ink-2); padding: 6px 14px; border-radius: 6px; cursor: pointer;
+  }
+  .toggle button[aria-pressed="true"] { background: var(--surface); color: var(--ink); box-shadow: 0 1px 2px var(--border); }
+  .toggle button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  .stat-row { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+  .stat-chip {
+    display: flex; flex-direction: column; align-items: flex-end; gap: 1px;
+    padding: 5px 10px; border: 1px solid var(--border); border-radius: 7px; background: var(--surface);
+  }
+  .stat-chip .label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--ink-muted); }
+  .stat-chip .value { font-size: 13px; font-weight: 500; }
+  .stat-chip.good .value { color: var(--good); }
+  .stat-chip.bad .value { color: var(--critical); }
+
+  /* ---------- layout ---------- */
+  .layout { display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: 20px; align-items: start; }
+  @media (max-width: 860px) { .layout { grid-template-columns: 1fr; } }
+
+  /* ---------- calendar ---------- */
+  .cal-scroll { overflow-x: auto; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
+  .cal { display: grid; grid-template-columns: 52px repeat(var(--days), minmax(112px, 1fr)); min-width: max-content; }
+
+  .day-head {
+    padding: 10px 8px 8px; border-bottom: 1px solid var(--border); border-left: 1px solid var(--gridline);
+    text-align: center; position: sticky; top: 0; background: var(--surface); z-index: 2;
+  }
+  .day-head .dow { font-family: "Source Serif 4", serif; font-size: 15px; font-weight: 600; }
+  .day-head .date { display: block; margin-top: 1px; font-size: 11px; color: var(--ink-muted); }
+  .day-head.today { background: color-mix(in srgb, var(--accent) 9%, var(--surface)); }
+  .day-head.today .dow::after { content: ""; display: inline-block; width: 5px; height: 5px; border-radius: 50%; background: var(--accent); margin-left: 5px; vertical-align: middle; }
+
+  .hour-col { position: relative; }
+  .hour-label {
+    position: absolute; right: 8px; transform: translateY(-50%);
+    font-size: 10.5px; color: var(--ink-muted); white-space: nowrap;
+  }
+
+  .day-col {
+    position: relative; border-left: 1px solid var(--gridline);
+    background-image: repeating-linear-gradient(to bottom, var(--gridline) 0, var(--gridline) 1px, transparent 1px, transparent var(--hour-px));
+  }
+
+  .block {
+    position: absolute; left: 3px; right: 3px; border-radius: 6px;
+    padding: 3px 6px; overflow: hidden; cursor: default;
+    border-left: 3px solid var(--course-color);
+    background: color-mix(in srgb, var(--course-color) 15%, var(--surface));
+  }
+  .block:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .block .t { font-size: 10.5px; font-weight: 500; color: var(--ink); line-height: 1.2; display: block; }
+  .block .m { font-size: 9px; color: var(--ink-2); font-family: "IBM Plex Mono", monospace; }
+  .block.fixed {
+    background-image:
+      repeating-linear-gradient(135deg, color-mix(in srgb, var(--course-color) 22%, transparent) 0 3px, transparent 3px 8px),
+      linear-gradient(color-mix(in srgb, var(--course-color) 20%, var(--surface)), color-mix(in srgb, var(--course-color) 20%, var(--surface)));
+    border-left-style: double; border-left-width: 4px;
+  }
+  .block.fixed .t { color: var(--ink-2); }
+  .lock { width: 9px; height: 9px; opacity: 0.55; vertical-align: -1px; margin-right: 2px; }
+
+  /* ---------- tooltip ---------- */
+  #tip {
+    position: fixed; pointer-events: none; z-index: 50; max-width: 240px;
+    background: var(--ink); color: var(--page); font-size: 12px; padding: 7px 10px; border-radius: 7px;
+    box-shadow: 0 6px 20px rgba(0,0,0,0.25); opacity: 0; transition: opacity 0.08s;
+  }
+  #tip .tt { font-weight: 600; margin-bottom: 2px; }
+  #tip .tm { font-family: "IBM Plex Mono", monospace; opacity: 0.75; font-size: 11px; }
+
+  /* ---------- sidebar ---------- */
+  .panel { border: 1px solid var(--border); border-radius: 10px; background: var(--surface); padding: 14px 16px; }
+  .panel + .panel { margin-top: 16px; }
+  .panel h2 { margin: 0 0 10px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-muted); font-weight: 600; }
+
+  .legend-row { display: flex; align-items: center; gap: 8px; padding: 4px 0; }
+  .swatch { width: 10px; height: 10px; border-radius: 3px; flex: none; background: var(--sw); }
+  .legend-row .code { font-family: "IBM Plex Mono", monospace; font-size: 11.5px; color: var(--ink-muted); flex: none; }
+  .legend-row .name { font-size: 12.5px; }
+
+  .diag-line { display: flex; justify-content: space-between; gap: 8px; padding: 5px 0; font-size: 12.5px; border-bottom: 1px solid var(--gridline); }
+  .diag-line:last-child { border-bottom: none; }
+  .diag-line .n { font-family: "IBM Plex Mono", monospace; font-weight: 500; }
+  .diag-line.warn .n { color: var(--critical); }
+  .diag-line.ok .n { color: var(--good); }
+
+  details summary { cursor: pointer; font-size: 12px; color: var(--accent); margin-top: 6px; }
+  details ul { margin: 6px 0 0; padding-left: 16px; font-size: 12px; color: var(--ink-2); }
+  details li { margin-bottom: 2px; }
+
+  .owed-row { display: grid; grid-template-columns: 78px 1fr 34px; align-items: center; gap: 8px; padding: 4px 0; }
+  .owed-row .oname { font-size: 11.5px; color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .owed-bar-track { height: 6px; border-radius: 3px; background: var(--surface-2); overflow: hidden; }
+  .owed-bar-fill { height: 100%; border-radius: 3px; }
+  .owed-row .ohrs { font-family: "IBM Plex Mono", monospace; font-size: 11px; color: var(--ink-muted); text-align: right; }
+
+  .note { font-size: 12.5px; color: var(--ink-2); }
+  .note strong { color: var(--ink); }
+  .note + .note { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--gridline); }
+</style>
+
+<div class="page">
+  <header>
+    <div>
+      <h1 class="serif">Buddy &mdash; schedule preview</h1>
+      <p class="subtitle">CP-SAT's placement of Carlos's real Fall '26 tasks, Sept 12&ndash;26: his reverse-engineered routine, a 1hr/subject cap, urgency-aware prioritization (the imminent big thing first, not next week's reading), and a soft goal to minimize the longest stretch without a real break. Toggle to see what all of that added, versus no preferences at all.</p>
+    </div>
+    <div class="header-right">
+      <div class="toggle" role="group" aria-label="Preference profile">
+        <button type="button" data-profile="none" aria-pressed="true">No preferences</button>
+        <button type="button" data-profile="tuned" aria-pressed="false">Tuned preferences</button>
+      </div>
+      <div class="stat-row" id="stats"></div>
+    </div>
+  </header>
+
+  <div class="layout">
+    <div class="cal-scroll">
+      <div class="cal" id="cal"></div>
+    </div>
+
+    <aside>
+      <div class="panel">
+        <h2>Courses</h2>
+        <div id="legend"></div>
+      </div>
+      <div class="panel">
+        <h2>This run</h2>
+        <div id="diagnostics"></div>
+      </div>
+      <div class="panel">
+        <h2>Owed beyond window</h2>
+        <p class="note" style="margin-top:0">Not a real capacity reservation yet &mdash; just what's due later, so it doesn't vanish from view.</p>
+        <div id="owed"></div>
+      </div>
+      <div class="panel">
+        <h2>Notes from this round</h2>
+        <p class="note"><strong>Reverse-engineered from a real, human-tuned week.</strong> Gym, breakfast, lunch, and dinner now sit on the calendar as real fixed blocks (not tasks) &mdash; the same mechanism as a locked class. Friday and Saturday night are hard-protected (no work 7pm&ndash;midnight), Sunday gets its own much lower load cap instead of the same number as every other day, and a new preference rewards studying a course shortly after that course's own lecture &mdash; the "notes right after class" pattern real students actually use.</p>
+        <p class="note"><strong>Urgency-aware prioritization, new this round:</strong> a task's sessions now get pulled earlier in proportion to real urgency (remaining work per hour of runway), not treated as interchangeable with everything else in scope. HW3 (10.75 hours, due in under a week) now finishes a day-plus ahead of its deadline instead of getting mixed in with far-off, lower-stakes reading &mdash; exactly the "why is it working on next week's stuff instead of the huge urgent thing" complaint this fixes. 1hr/subject is still a hard cap (decompose.py's session-length limit); it turned out to need no new mechanism.</p>
+        <p class="note"><strong>The 2-hour rule is now a soft goal, not a hard wall</strong> &mdash; minimize the single longest unbroken stretch (chained by gaps under 45 min), so a genuinely urgent push isn't forced to drop a session just to satisfy an absolute cutoff. Getting the weight right took real tuning: 20&ndash;120 barely moved the worst streak at all (urgency and the after-class bonus simply won every tradeoff against it), 500&ndash;1000 brought a 210-minute worst case down to 90&ndash;150 with zero cost to sessions placed or to urgency's own job, and 3000 started measurably eating into that &mdash; HW3's last session got pushed to right before its own deadline. Landed on 1000.</p>
+        <p class="note"><strong>Titles now lead with the class number</strong> ("21-241 Study for Recitation 3"), matching how a real calendar reads at a glance, and multi-part tasks share one repeated title instead of a "(part i/N)" suffix. A dedicated "Review Notes" session is also generated after <em>every</em> lecture, not just when a real assignment happens to be due.</p>
+        <p class="note"><strong>Two real bugs found while verifying the break rule</strong>, unrelated to the rule itself: an unplaced session's status silently defaulted back to "flexible" instead of "unplaced," so a session that lost the scheduling squeeze just vanished from every report instead of showing up as "competed and lost." Separately, a review session's earliest-start bound floored a lecture's end time to the nearest 15-minute slot, letting it start up to 14 minutes before the lecture it was reviewing actually ended. Both only became visible once a harder model started producing real squeezes and real edge cases to hide.</p>
+        <p class="note"><strong>Compute time, and a real caveat on it:</strong> nine preferences deep, this model shows real run-to-run variance at 10&ndash;15 seconds &mdash; the same weights produced a 210-minute worst streak at one budget and a 90-minute one at another, a few seconds apart. Not fully converged (CP-SAT's own gap sits around 0.1&ndash;0.3%, not the near-zero this prototype saw with fewer preferences). Bumped the default to 15s; still worth more headroom before trusting a single run's exact numbers.</p>
+        <p class="note"><strong>Still-open gap:</strong> Midterm 1 / Exam 1 are still movable blocks with a deadline, not a fixed time like a lecture &mdash; a schema question (see <code>backend/optimizer/README.md</code>), not a preference.</p>
+      </div>
+    </aside>
+  </div>
+</div>
+
+<div id="tip"><div class="tt"></div><div class="tm"></div></div>
+
+<script type="application/json" id="data-none">
+{"window_start":"2026-09-12T00:00:00-04:00","window_days":14,"status":"FEASIBLE","objective":699999756.0,"best_bound":699999807.0,"blocks":[{"id":"fixed_math-found_2_13:00","title":"15151 Math Foundations","kind":"fixed","course_id":"math-found","start":"2026-09-14T13:00:00-04:00","end":"2026-09-14T13:50:00-04:00"},{"id":"fixed_matrices_2_09:00","title":"21241 Matrices","kind":"fixed","course_id":"matrices","start":"2026-09-14T09:00:00-04:00","end":"2026-09-14T09:50:00-04:00"},{"id":"fixed_fye-immig_2_16:00","title":"07128 First-Year Immigration","kind":"fixed","course_id":"fye-immig","start":"2026-09-14T16:00:00-04:00","end":"2026-09-14T16:50:00-04:00"},{"id":"fixed_hum-intel_2_19:00","title":"88230 Human Intelligence & Stupidity","kind":"fixed","course_id":"hum-intel","start":"2026-09-14T19:00:00-04:00","end":"2026-09-14T20:20:00-04:00"},{"id":"fixed_math-found_3_17:00","title":"15151 Math Foundations","kind":"fixed","course_id":"math-found","start":"2026-09-15T17:00:00-04:00","end":"2026-09-15T17:50:00-04:00"},{"id":"fixed_matrices_3_15:00","title":"21241 Matrices","kind":"fixed","course_id":"matrices","start":"2026-09-15T15:00:00-04:00","end":"2026-09-15T15:50:00-04:00"},{"id":"fixed_imp-comp_3_09:30","title":"15122 Imperative Computation","kind":"fixed","course_id":"imp-comp","start":"2026-09-15T09:30:00-04:00","end":"2026-09-15T10:50:00-04:00"},{"id":"fixed_imp-comp_3_19:00","title":"15122 Imperative Computation","kind":"fixed","course_id":"imp-comp","start":"2026-09-15T19:00:00-04:00","end":"2026-09-15T19:35:00-04:00"},{"id":"fixed_math-found_4_13:00","title":"15151 Math Foundations","kind":"fixed","course_id":"math-found","start":"2026-09-16T13:00:00-04:00","end":"2026-09-16T13:50:00-04:00"},{"id":"fixed_matrices_4_09:00","title":"21241 Matrices","kind":"fixed","course_id":"matrices","start":"2026-09-16T09:00:00-04:00","end":"2026-09-16T09:50:00-04:00"},{"id":"fixed_fye-immig_4_16:00","title":"07128 First-Year Immigration","kind":"fixed","course_id":"fye-immig","start":"2026-09-16T16:00:00-04:00","end":"2026-09-16T16:50:00-04:00"},{"id":"fixed_hum-intel_4_19:00","title":"88230 Human Intelligence & Stupidity","kind":"fixed","course_id":"hum-intel","start":"2026-09-16T19:00:00-04:00","end":"2026-09-16T20:20:00-04:00"},{"id":"fixed_math-found_6_13:00","title":"15151 Math Foundations","kind":"fixed","course_id":"math-found","start":"2026-09-18T13:00:00-04:00","end":"2026-09-18T13:50:00-04:00"},{"id":"fixed_matrices_6_09:00","title":"21241 Matrices","kind":"fixed","course_id":"matrices","start":"2026-09-18T09:00:00-04:00","end":"2026-09-18T09:50:00-04:00"},{"id":"fixed_imp-comp_6_17:00","title":"15122 Imperative Computation","kind":"fixed","course_id":"imp-comp","start":"2026-09-18T17:00:00-04:00","end":"2026-09-18T17:50:00-04:00"},{"id":"fixed_gpi_6_16:00","title":"07131 Great Practical Ideas for Computer Scientists","kind":"fixed","course_id":"gpi","start":"2026-09-18T16:00:00-04:00","end":"2026-09-18T16:50:00-04:00"},{"id":"fixed_math-found_9_13:00","title":"15151 Math Foundations","kind":"fixed","course_id":"math-found","start":"2026-09-21T13:00:00-04:00","end":"2026-09-21T13:50:00-04:00"},{"id":"fixed_matrices_9_09:00","title":"21241 Matrices","kind":"fixed","course_id":"matrices","start":"2026-09-21T09:00:00-04:00","end":"2026-09-21T09:50:00-04:00"},{"id":"fixed_fye-immig_9_16:00","title":"07128 First-Year Immigration","kind":"fixed","course_id":"fye-immig","start":"2026-09-21T16:00:00-04:00","end":"2026-09-21T16:50:00-04:00"},{"id":"fixed_hum-intel_9_19:00","title":"88230 Human Intelligence & Stupidity","kind":"fixed","course_id":"hum-intel","start":"2026-09-21T19:00:00-04:00","end":"2026-09-21T20:20:00-04:00"},{"id":"fixed_math-found_10_17:00","title":"15151 Math Foundations","kind":"fixed","course_id":"math-found","start":"2026-09-22T17:00:00-04:00","end":"2026-09-22T17:50:00-04:00"},{"id":"fixed_matrices_10_15:00","title":"21241 Matrices","kind":"fixed","course_id":"matrices","start":"2026-09-22T15:00:00-04:00","end":"2026-09-22T15:50:00-04:00"},{"id":"fixed_imp-comp_10_09:30","title":"15122 Imperative Computation","kind":"fixed","course_id":"imp-comp","start":"2026-09-22T09:30:00-04:00","end":"2026-09-22T10:50:00-04:00"},{"id":"fixed_imp-comp_10_19:00","title":"15122 Imperative Computation","kind":"fixed","course_id":"imp-comp","start":"2026-09-22T19:00:00-04:00","end":"2026-09-22T19:35:00-04:00"},{"id":"fixed_math-found_11_13:00","title":"15151 Math Foundations","kind":"fixed","course_id":"math-found","start":"2026-09-23T13:00:00-04:00","end":"2026-09-23T13:50:00-04:00"},{"id":"fixed_matrices_11_09:00","title":"21241 Matrices","kind":"fixed","course_id":"matrices","start":"2026-09-23T09:00:00-04:00","end":"2026-09-23T09:50:00-04:00"},{"id":"fixed_fye-immig_11_16:00","title":"07128 First-Year Immigration","kind":"fixed","course_id":"fye-immig","start":"2026-09-23T16:00:00-04:00","end":"2026-09-23T16:50:00-04:00"},{"id":"fixed_hum-intel_11_19:00","title":"88230 Human Intelligence & Stupidity","kind":"fixed","course_id":"hum-intel","start":"2026-09-23T19:00:00-04:00","end":"2026-09-23T20:20:00-04:00"},{"id":"fixed_math-found_13_13:00","title":"15151 Math Foundations","kind":"fixed","course_id":"math-found","start":"2026-09-25T13:00:00-04:00","end":"2026-09-25T13:50:00-04:00"},{"id":"fixed_matrices_13_09:00","title":"21241 Matrices","kind":"fixed","course_id":"matrices","start":"2026-09-25T09:00:00-04:00","end":"2026-09-25T09:50:00-04:00"},{"id":"fixed_imp-comp_13_17:00","title":"15122 Imperative Computation","kind":"fixed","course_id":"imp-comp","start":"2026-09-25T17:00:00-04:00","end":"2026-09-25T17:50:00-04:00"},{"id":"fixed_gpi_13_16:00","title":"07131 Great Practical Ideas for Computer Scientists","kind":"fixed","course_id":"gpi","start":"2026-09-25T16:00:00-04:00","end":"2026-09-25T16:50:00-04:00"},{"id":"routine_2_0","title":"Breakfast & Shower","kind":"fixed","course_id":null,"start":"2026-09-12T09:30:00-04:00","end":"2026-09-12T10:15:00-04:00"},{"id":"routine_4_0","title":"Lunch","kind":"fixed","course_id":null,"start":"2026-09-12T13:00:00-04:00","end":"2026-09-12T13:45:00-04:00"},{"id":"routine_5_0","title":"Dinner","kind":"fixed","course_id":null,"start":"2026-09-12T18:00:00-04:00","end":"2026-09-12T18:45:00-04:00"},{"id":"routine_2_1","title":"Breakfast & Shower","kind":"fixed","course_id":null,"start":"2026-09-13T09:30:00-04:00","end":"2026-09-13T10:15:00-04:00"},{"id":"routine_4_1","title":"Lunch","kind":"fixed","course_id":null,"start":"2026-09-13T13:00:00-04:00","end":"2026-09-13T13:45:00-04:00"},{"id":"routine_5_1","title":"Dinner","kind":"fixed","course_id":null,"start":"2026-09-13T18:00:00-04:00","end":"2026-09-13T18:45:00-04:00"},{"id":"routine_0_2","title":"Gym","kind":"fixed","course_id":null,"start":"2026-09-14T06:30:00-04:00","end":"2026-09-14T07:45:00-04:00"},{"id":"routine_1_2","title":"Breakfast & Shower","kind":"fixed","course_id":null,"start":"2026-09-14T07:45:00-04:00","end":"2026-09-14T08:30:00-04:00"},{"id":"routine_3_2","title":"Lunch","kind":"fixed","course_id":null,"start":"2026-09-14T12:00:00-04:00","end":"2026-09-14T12:45:00-04:00"},{"id":"routine_5_2","title":"Dinner","kind":"fixed","course_id":null,"start":"2026-09-14T18:00:00-04:00","end":"2026-09-14T18:45:00-04:00"},{"id":"routine_0_3","title":"Gym","kind":"fixed","course_id":null,"start":"2026-09-15T06:30:00-04:00","end":"2026-09-15T07:45:00-04:00"},{"id":"routine_1_3","title":"Breakfast & Shower","kind":"fixed","course_id":null,"start":"2026-09-15T07:45:00-04:00","end":"2026-09-15T08:30:00-04:00"},{"id":"routine_3_3","title":"Lunch","kind":"fixed","course_id":null,"start":"2026-09-15T12:00:00-04:00","end":"2026-09-15T12:45:00-04:00"},{"id":"routine_5_3","title":"Dinner","kind":"fixed","course_id":null,"start":"2026-09-15T18:00:00-04:00","end":"2026-09-15T18:45:00-04:00"},{"id":"routine_0_4","title":"Gym","kind":"fixed","course_id":null,"start":"2026-09-16T06:30:00-04:00","end":"2026-09-16T07:45:00-04:00"},{"id":"routine_1_4","title":"Breakfast & Shower","kind":"fixed","course_id":null,"start":"2026-09-16T07:45:00-04:00","end":"2026-09-16T08:30:00-04:00"},{"id":"routine_3_4","title":"Lunch","kind":"fixed","course_id":null,"start":"2026-09-16T12:00:00-04:00","end":"2026-09-16T12:45:00-04:00"},{"id":"routine_5_4","title":"Dinner","kind":"fixed","course_id":null,"start":"2026-09-16T18:00:00-04:00","end":"2026-09-16T18:45:00-04:00"},{"id":"routine_0_5","title":"Gym","kind":"fixed","course_id":null,"start":"2026-09-17T06:30:00-04:00","end":"2026-09-17T07:45:00-04:00"},{"id":"routine_1_5","title":"Breakfast & Shower","kind":"fixed","course_id":null,"start":"2026-09-17T07:45:00-04:00","end":"2026-09-17T08:30:00-04:00"},{"id":"routine_3_5","title":"Lunch","kind":"fixed","course_id":null,"start":"2026-09-17T12:00:00-04:00","end":"2026-09-17T12:45:00-04:00"},{"id":"routine_5_5","title":"Dinner","kind":"fixed","course_id":null,"start":"2026-09-17T18:00:00-04:00","end":"2026-09-17T18:45:00-04:00"},{"id":"routine_0_6","title":"Gym","kind":"fixed","course_id":null,"start":"2026-09-18T06:30:00-04:00","end":"2026-09-18T07:45:00-04:00"},{"id":"routine_1_6","title":"Breakfast & Shower","kind":"fixed","course_id":null,"start":"2026-09-18T07:45:00-04:00","end":"2026-09-18T08:30:00-04:00"},{"id":"routine_3_6","title":"Lunch","kind":"fixed","course_id":null,"start":"2026-09-18T12:00:00-04:00","end":"2026-09-18T12:45:00-04:00"},{"id":"routine_5_6","title":"Dinner","kind":"fixed","course_id":null,"start":"2026-09-18T18:00:00-04:00","end":"2026-09-18T18:45:00-04:00"},{"id":"routine_2_7","title":"Breakfast & Shower","kind":"fixed","course_id":null,"start":"2026-09-19T09:30:00-04:00","end":"2026-09-19T10:15:00-04:00"},{"id":"routine_4_7","title":"Lunch","kind":"fixed","course_id":null,"start":"2026-09-19T13:00:00-04:00","end":"2026-09-19T13:45:00-04:00"},{"id":"routine_5_7","title":"Dinner","kind":"fixed","course_id":null,"start":"2026-09-19T18:00:00-04:00","end":"2026-09-19T18:45:00-04:00"},{"id":"routine_2_8","title":"Breakfast & Shower","kind":"fixed","course_id":null,"start":"2026-09-20T09:30:00-04:00","end":"2026-09-20T10:15:00-04:00"},{"id":"routine_4_8","title":"Lunch","kind":"fixed","course_id":null,"start":"2026-09-20T13:00:00-04:00","end":"2026-09-20T13:45:00-04:00"},{"id":"routine_5_8","title":"Dinner","kind":"fixed","course_id":null,"start":"2026-09-20T18:00:00-04:00","end":"2026-09-20T18:45:00-04:00"},{"id":"routine_0_9","title":"Gym","kind":"fixed","course_id":null,"start":"2026-09-21T06:30:00-04:00","end":"2026-09-21T07:45:00-04:00"},{"id":"routine_1_9","title":"Breakfast & Shower","kind":"fixed","course_id":null,"start":"2026-09-21T07:45:00-04:00","end":"2026-09-21T08:30:00-04:00"},{"id":"routine_3_9","title":"Lunch","kind":"fixed","course_id":null,"start":"2026-09-21T12:00:00-04:00","end":"2026-09-21T12:45:00-04:00"},{"id":"routine_5_9","title":"Dinner","kind":"fixed","course_id":null,"start":"2026-09-21T18:00:00-04:00","end":"2026-09-21T18:45:00-04:00"},{"id":"routine_0_10","title":"Gym","kind":"fixed","course_id":null,"start":"2026-09-22T06:30:00-04:00","end":"2026-09-22T07:45:00-04:00"},{"id":"routine_1_10","title":"Breakfast & Shower","kind":"fixed","course_id":null,"start":"2026-09-22T07:45:00-04:00","end":"2026-09-22T08:30:00-04:00"},{"id":"routine_3_10","title":"Lunch","kind":"fixed","course_id":null,"start":"2026-09-22T12:00:00-04:00","end":"2026-09-22T12:45:00-04:00"},{"id":"routine_5_10","title":"Dinner","kind":"fixed","course_id":null,"start":"2026-09-22T18:00:00-04:00","end":"2026-09-22T18:45:00-04:00"},{"id":"routine_0_11","title":"Gym","kind":"fixed","course_id":null,"start":"2026-09-23T06:30:00-04:00","end":"2026-09-23T07:45:00-04:00"},{"id":"routine_1_11","title":"Breakfast & Shower","kind":"fixed","course_id":null,"start":"2026-09-23T07:45:00-04:00","end":"2026-09-23T08:30:00-04:00"},{"id":"routine_3_11","title":"Lunch","kind":"fixed","course_id":null,"start":"2026-09-23T12:00:00-04:00","end":"2026-09-23T12:45:00-04:00"},{"id":"routine_5_11","title":"Dinner","kind":"fixed","course_id":null,"start":"2026-09-23T18:00:00-04:00","end":"2026-09-23T18:45:00-04:00"},{"id":"routine_0_12","title":"Gym","kind":"fixed","course_id":null,"start":"2026-09-24T06:30:00-04:00","end":"2026-09-24T07:45:00-04:00"},{"id":"routine_1_12","title":"Breakfast & Shower","kind":"fixed","course_id":null,"start":"2026-09-24T07:45:00-04:00","end":"2026-09-24T08:30:00-04:00"},{"id":"routine_3_12","title":"Lunch","kind":"fixed","course_id":null,"start":"2026-09-24T12:00:00-04:00","end":"2026-09-24T12:45:00-04:00"},{"id":"routine_5_12","title":"Dinner","kind":"fixed","course_id":null,"start":"2026-09-24T18:00:00-04:00","end":"2026-09-24T18:45:00-04:00"},{"id":"routine_0_13","title":"Gym","kind":"fixed","course_id":null,"start":"2026-09-25T06:30:00-04:00","end":"2026-09-25T07:45:00-04:00"},{"id":"routine_1_13","title":"Breakfast & Shower","kind":"fixed","course_id":null,"start":"2026-09-25T07:45:00-04:00","end":"2026-09-25T08:30:00-04:00"},{"id":"routine_3_13","title":"Lunch","kind":"fixed","course_id":null,"start":"2026-09-25T12:00:00-04:00","end":"2026-09-25T12:45:00-04:00"},{"id":"routine_5_13","title":"Dinner","kind":"fixed","course_id":null,"start":"2026-09-25T18:00:00-04:00","end":"2026-09-25T18:45:00-04:00"},{"id":"hi-response-paper1__s1","title":"88-230 Work on Response Paper 1","kind":"flexible","course_id":"hum-intel","start":"2026-09-12T11:00:00-04:00","end":"2026-09-12T12:00:00-04:00"},{"id":"hi-response-paper1__s2","title":"88-230 Work on Response Paper 1","kind":"flexible","course_id":"hum-intel","start":"2026-09-13T15:45:00-04:00","end":"2026-09-13T16:45:00-04:00"},{"id":"hi-response-paper1__s3","title":"88-230 Work on Response Paper 1","kind":"flexible","course_id":"hum-intel","start":"2026-09-13T08:00:00-04:00","end":"2026-09-13T08:30:00-04:00"},{"id":"ic-pg2__s1","title":"15-122 Work on PG2","kind":"flexible","course_id":"imp-comp","start":"2026-09-13T20:30:00-04:00","end":"2026-09-13T21:30:00-04:00"},{"id":"mf-weak-induction__s1","title":"15-151 Study Section 4.2: Weak Induction","kind":"flexible","course_id":"math-found","start":"2026-09-13T16:45:00-04:00","end":"2026-09-13T17:45:00-04:00"},{"id":"hi-effects-of-intelligence__s1","title":"88-230 Work on Effects of Intelligence","kind":"flexible","course_id":"hum-intel","start":"2026-09-13T22:15:00-04:00","end":"2026-09-13T23:00:00-04:00"},{"id":"ic-ch3-checkin__s1","title":"15-122 Complete CH3 Checkin","kind":"flexible","course_id":"imp-comp","start":"2026-09-12T10:15:00-04:00","end":"2026-09-12T11:00:00-04:00"},{"id":"mx-recitation-quiz3__s1","title":"21-241 Study for Recitation 3","kind":"flexible","course_id":"matrices","start":"2026-09-12T16:30:00-04:00","end":"2026-09-12T17:30:00-04:00"},{"id":"mf-hw3-due__s1","title":"15-151 Work on HW3","kind":"flexible","course_id":"math-found","start":"2026-09-16T14:30:00-04:00","end":"2026-09-16T15:30:00-04:00"},{"id":"mf-hw3-due__s2","title":"15-151 Work on HW3","kind":"flexible","course_id":"math-found","start":"2026-09-15T13:45:00-04:00","end":"2026-09-15T14:45:00-04:00"},{"id":"mf-hw3-due__s3","title":"15-151 Work on HW3","kind":"flexible","course_id":"math-found","start":"2026-09-15T20:15:00-04:00","end":"2026-09-15T21:15:00-04:00"},{"id":"mf-hw3-due__s4","title":"15-151 Work on HW3","kind":"flexible","course_id":"math-found","start":"2026-09-12T13:45:00-04:00","end":"2026-09-12T14:45:00-04:00"},{"id":"mf-hw3-due__s5","title":"15-151 Work on HW3","kind":"flexible","course_id":"math-found","start":"2026-09-14T10:45:00-04:00","end":"2026-09-14T11:45:00-04:00"},{"id":"mf-hw3-due__s6","title":"15-151 Work on HW3","kind":"flexible","course_id":"math-found","start":"2026-09-13T11:00:00-04:00","end":"2026-09-13T12:00:00-04:00"},{"id":"mf-hw3-due__s7","title":"15-151 Work on HW3","kind":"flexible","course_id":"math-found","start":"2026-09-12T12:00:00-04:00","end":"2026-09-12T13:00:00-04:00"},{"id":"mf-hw3-due__s8","title":"15-151 Work on HW3","kind":"flexible","course_id":"math-found","start":"2026-09-15T12:45:00-04:00","end":"2026-09-15T13:45:00-04:00"},{"id":"mf-hw3-due__s9","title":"15-151 Work on HW3","kind":"flexible","course_id":"math-found","start":"2026-09-12T08:00:00-04:00","end":"2026-09-12T09:00:00-04:00"},{"id":"mf-hw3-due__s10","title":"15-151 Work on HW3","kind":"flexible","course_id":"math-found","start":"2026-09-15T08:30:00-04:00","end":"2026-09-15T09:30:00-04:00"},{"id":"mf-hw3-due__s11","title":"15-151 Work on HW3","kind":"flexible","course_id":"math-found","start":"2026-09-12T20:15:00-04:00","end":"2026-09-12T21:00:00-04:00"},{"id":"mf-4-3-strong-induction__s1","title":"15-151 Study Section 4.3: Strong Induction","kind":"flexible","course_id":"math-found","start":"2026-09-12T14:45:00-04:00","end":"2026-09-12T15:45:00-04:00"},{"id":"hi-human-vs-artificial__s1","title":"88-230 Work on Human Intelligence vs Artificial Intelligence","kind":"flexible","course_id":"hum-intel","start":"2026-09-12T19:30:00-04:00","end":"2026-09-12T20:15:00-04:00"},{"id":"hi-human-vs-artificial__s2","title":"88-230 Work on Human Intelligence vs Artificial Intelligence","kind":"flexible","course_id":"hum-intel","start":"2026-09-13T21:30:00-04:00","end":"2026-09-13T22:15:00-04:00"},{"id":"ic-pr3__s1","title":"15-122 Work on PR3","kind":"flexible","course_id":"imp-comp","start":"2026-09-16T21:00:00-04:00","end":"2026-09-16T22:00:00-04:00"},{"id":"mx-weekly-hw4__s1","title":"21-241 Work on Weekly HW 4 (Optional)","kind":"flexible","course_id":"matrices","start":"2026-09-14T22:00:00-04:00","end":"2026-09-14T23:00:00-04:00"},{"id":"mx-weekly-hw4__s2","title":"21-241 Work on Weekly HW 4 (Optional)","kind":"flexible","course_id":"matrices","start":"2026-09-16T10:30:00-04:00","end":"2026-09-16T11:30:00-04:00"},{"id":"mx-weekly-hw4__s3","title":"21-241 Work on Weekly HW 4 (Optional)","kind":"flexible","course_id":"matrices","start":"2026-09-12T17:30:00-04:00","end":"2026-09-12T18:00:00-04:00"},{"id":"mf-4-3-strong-induction-cont-l13__s1","title":"15-151 Study Section 4.3: Strong Induction (Continued)","kind":"flexible","course_id":"math-found","start":"2026-09-17T09:30:00-04:00","end":"2026-09-17T10:30:00-04:00"},{"id":"ic-pg3__s1","title":"15-122 Work on PG3","kind":"flexible","course_id":"imp-comp","start":"2026-09-15T21:15:00-04:00","end":"2026-09-15T22:15:00-04:00"},{"id":"ic-pg3__s2","title":"15-122 Work on PG3","kind":"flexible","course_id":"imp-comp","start":"2026-09-13T12:00:00-04:00","end":"2026-09-13T13:00:00-04:00"},{"id":"mf-midterm1__s1","title":"15-151 Study for Midterm 1","kind":"flexible","course_id":"math-found","start":"2026-09-17T08:30:00-04:00","end":"2026-09-17T09:30:00-04:00"},{"id":"hi-human-vs-animal__s1","title":"88-230 Work on Human Intelligence vs Animal Intelligence","kind":"flexible","course_id":"hum-intel","start":"2026-09-12T18:45:00-04:00","end":"2026-09-12T19:30:00-04:00"},{"id":"hi-human-vs-animal__s2","title":"88-230 Work on Human Intelligence vs Animal Intelligence","kind":"flexible","course_id":"hum-intel","start":"2026-09-12T15:45:00-04:00","end":"2026-09-12T16:30:00-04:00"},{"id":"mx-recitation-quiz4__s1","title":"21-241 Study for Recitation 4","kind":"flexible","course_id":"matrices","start":"2026-09-16T22:00:00-04:00","end":"2026-09-16T23:00:00-04:00"},{"id":"ic-ch4-checkin__s1","title":"15-122 Complete CH4 Checkin","kind":"flexible","course_id":"imp-comp","start":"2026-09-14T21:00:00-04:00","end":"2026-09-14T22:00:00-04:00"},{"id":"ic-ch4-checkin__s2","title":"15-122 Complete CH4 Checkin","kind":"flexible","course_id":"imp-comp","start":"2026-09-12T21:00:00-04:00","end":"2026-09-12T22:00:00-04:00"},{"id":"mf-4-3-strong-induction-cont-l14__s1","title":"15-151 Study Section 4.3: Strong Induction (Continued)","kind":"flexible","course_id":"math-found","start":"2026-09-13T13:45:00-04:00","end":"2026-09-13T14:45:00-04:00"},{"id":"hi-intro-to-stupidity__s1","title":"88-230 Work on Intro to Stupidity","kind":"flexible","course_id":"hum-intel","start":"2026-09-13T19:45:00-04:00","end":"2026-09-13T20:30:00-04:00"},{"id":"hi-intro-to-stupidity__s2","title":"88-230 Work on Intro to Stupidity","kind":"flexible","course_id":"hum-intel","start":"2026-09-13T10:15:00-04:00","end":"2026-09-13T11:00:00-04:00"},{"id":"ic-pr4__s1","title":"15-122 Work on PR4","kind":"flexible","course_id":"imp-comp","start":"2026-09-13T18:45:00-04:00","end":"2026-09-13T19:45:00-04:00"},{"id":"mx-exam1__s1","title":"21-241 Study for Exam 1","kind":"flexible","course_id":"matrices","start":"2026-09-14T15:00:00-04:00","end":"2026-09-14T16:00:00-04:00"},{"id":"mx-weekly-hw5__s1","title":"21-241 Work on Weekly HW 5 (Optional)","kind":"flexible","course_id":"matrices","start":"2026-09-13T08:30:00-04:00","end":"2026-09-13T09:30:00-04:00"},{"id":"mx-weekly-hw5__s2","title":"21-241 Work on Weekly HW 5 (Optional)","kind":"flexible","course_id":"matrices","start":"2026-09-13T14:45:00-04:00","end":"2026-09-13T15:45:00-04:00"},{"id":"mx-weekly-hw5__s3","title":"21-241 Work on Weekly HW 5 (Optional)","kind":"flexible","course_id":"matrices","start":"2026-09-12T09:00:00-04:00","end":"2026-09-12T09:30:00-04:00"},{"id":"mf-5-1-relations__s1","title":"15-151 Study Section 5.1: Relations","kind":"flexible","course_id":"math-found","start":"2026-09-12T22:00:00-04:00","end":"2026-09-12T23:00:00-04:00"},{"id":"review_math-found_2_13:00","title":"15-151 Review Notes","kind":"flexible","course_id":"math-found","start":"2026-09-14T14:00:00-04:00","end":"2026-09-14T14:30:00-04:00"},{"id":"review_matrices_2_09:00","title":"21-241 Review Notes","kind":"flexible","course_id":"matrices","start":"2026-09-14T10:00:00-04:00","end":"2026-09-14T10:30:00-04:00"},{"id":"review_fye-immig_2_16:00","title":"07-128 Review Notes","kind":"flexible","course_id":"fye-immig","start":"2026-09-14T17:00:00-04:00","end":"2026-09-14T17:30:00-04:00"},{"id":"review_hum-intel_2_19:00","title":"88-230 Review Notes","kind":"flexible","course_id":"hum-intel","start":"2026-09-14T20:30:00-04:00","end":"2026-09-14T21:00:00-04:00"},{"id":"review_matrices_3_15:00","title":"21-241 Review Notes","kind":"flexible","course_id":"matrices","start":"2026-09-15T16:00:00-04:00","end":"2026-09-15T16:30:00-04:00"},{"id":"review_imp-comp_3_09:30","title":"15-122 Review Notes","kind":"flexible","course_id":"imp-comp","start":"2026-09-15T11:00:00-04:00","end":"2026-09-15T11:30:00-04:00"},{"id":"review_imp-comp_3_19:00","title":"15-122 Review Notes","kind":"flexible","course_id":"imp-comp","start":"2026-09-15T19:45:00-04:00","end":"2026-09-15T20:15:00-04:00"},{"id":"review_math-found_4_13:00","title":"15-151 Review Notes","kind":"flexible","course_id":"math-found","start":"2026-09-16T14:00:00-04:00","end":"2026-09-16T14:30:00-04:00"},{"id":"review_matrices_4_09:00","title":"21-241 Review Notes","kind":"flexible","course_id":"matrices","start":"2026-09-16T10:00:00-04:00","end":"2026-09-16T10:30:00-04:00"},{"id":"review_fye-immig_4_16:00","title":"07-128 Review Notes","kind":"flexible","course_id":"fye-immig","start":"2026-09-16T17:00:00-04:00","end":"2026-09-16T17:30:00-04:00"},{"id":"review_hum-intel_4_19:00","title":"88-230 Review Notes","kind":"flexible","course_id":"hum-intel","start":"2026-09-16T20:30:00-04:00","end":"2026-09-16T21:00:00-04:00"},{"id":"review_math-found_6_13:00","title":"15-151 Review Notes","kind":"flexible","course_id":"math-found","start":"2026-09-18T14:00:00-04:00","end":"2026-09-18T14:30:00-04:00"},{"id":"review_matrices_6_09:00","title":"21-241 Review Notes","kind":"flexible","course_id":"matrices","start":"2026-09-18T10:00:00-04:00","end":"2026-09-18T10:30:00-04:00"},{"id":"review_math-found_9_13:00","title":"15-151 Review Notes","kind":"flexible","course_id":"math-found","start":"2026-09-21T14:00:00-04:00","end":"2026-09-21T14:30:00-04:00"},{"id":"review_matrices_9_09:00","title":"21-241 Review Notes","kind":"flexible","course_id":"matrices","start":"2026-09-21T10:00:00-04:00","end":"2026-09-21T10:30:00-04:00"},{"id":"review_fye-immig_9_16:00","title":"07-128 Review Notes","kind":"flexible","course_id":"fye-immig","start":"2026-09-21T17:00:00-04:00","end":"2026-09-21T17:30:00-04:00"},{"id":"review_hum-intel_9_19:00","title":"88-230 Review Notes","kind":"flexible","course_id":"hum-intel","start":"2026-09-21T20:30:00-04:00","end":"2026-09-21T21:00:00-04:00"},{"id":"review_matrices_10_15:00","title":"21-241 Review Notes","kind":"flexible","course_id":"matrices","start":"2026-09-22T16:00:00-04:00","end":"2026-09-22T16:30:00-04:00"},{"id":"review_imp-comp_10_09:30","title":"15-122 Review Notes","kind":"flexible","course_id":"imp-comp","start":"2026-09-22T11:00:00-04:00","end":"2026-09-22T11:30:00-04:00"},{"id":"review_imp-comp_10_19:00","title":"15-122 Review Notes","kind":"flexible","course_id":"imp-comp","start":"2026-09-22T19:45:00-04:00","end":"2026-09-22T20:15:00-04:00"},{"id":"review_math-found_11_13:00","title":"15-151 Review Notes","kind":"flexible","course_id":"math-found","start":"2026-09-23T14:00:00-04:00","end":"2026-09-23T14:30:00-04:00"},{"id":"review_matrices_11_09:00","title":"21-241 Review Notes","kind":"flexible","course_id":"matrices","start":"2026-09-23T10:00:00-04:00","end":"2026-09-23T10:30:00-04:00"},{"id":"review_fye-immig_11_16:00","title":"07-128 Review Notes","kind":"flexible","course_id":"fye-immig","start":"2026-09-23T17:00:00-04:00","end":"2026-09-23T17:30:00-04:00"},{"id":"review_hum-intel_11_19:00","title":"88-230 Review Notes","kind":"flexible","course_id":"hum-intel","start":"2026-09-23T20:30:00-04:00","end":"2026-09-23T21:00:00-04:00"},{"id":"review_math-found_13_13:00","title":"15-151 Review Notes","kind":"flexible","course_id":"math-found","start":"2026-09-25T14:00:00-04:00","end":"2026-09-25T14:30:00-04:00"},{"id":"review_matrices_13_09:00","title":"21-241 Review Notes","kind":"flexible","course_id":"matrices","start":"2026-09-25T10:00:00-04:00","end":"2026-09-25T10:30:00-04:00"}],"unplaced":[{"title":"88-230 Work on Assignment 1","reason":"out_of_window"},{"title":"88-230 Work on Assignment 1","reason":"out_of_window"},{"title":"88-230 Work on Assignment 1","reason":"out_of_window"},{"title":"88-230 Work on Assignment 1","reason":"out_of_window"},{"title":"88-230 Work on Assignment 1","reason":"out_of_window"},{"title":"15-122 Complete CH7 Checkin","reason":"out_of_window"},{"title":"15-122 Complete CH7 Checkin","reason":"out_of_window"},{"title":"21-241 Work on Weekly HW 9 (Optional)","reason":"out_of_window"},{"title":"21-241 Work on Weekly HW 9 (Optional)","reason":"out_of_window"},{"title":"21-241 Work on Weekly HW 9 (Optional)","reason":"out_of_window"},{"title":"15-151 Study Section 6.2: Countable and Uncountable Sets","reason":"out_of_window"},{"title":"88-230 Work on Assignment 2","reason":"out_of_window"},{"title":"88-230 Work on Assignment 2","reason":"out_of_window"},{"title":"88-230 Work on Assignment 2","reason":"out_of_window"},{"title":"88-230 Work on Assignment 2","reason":"out_of_window"},{"title":"88-230 Work on Assignment 2","reason":"out_of_window"},{"title":"15-122 Complete CH13 Checkin","reason":"out_of_window"},{"title":"15-122 Complete CH13 Checkin","reason":"out_of_window"},{"title":"21-241 Study for Recitation 13","reason":"out_of_window"},{"title":"15-151 Work on Some More Probability","reason":"out_of_window"},{"title":"88-230 Work on RPP Extra Credit","reason":"out_of_window"},{"title":"88-230 Work on Response Paper 5","reason":"out_of_window"},{"title":"88-230 Work on Response Paper 5","reason":"out_of_window"},{"title":"88-230 Work on Response Paper 5","reason":"out_of_window"},{"title":"15-151 Review Notes","reason":"unplaced"},{"title":"15-122 Review Notes","reason":"unplaced"},{"title":"07-131 Review Notes","reason":"unplaced"},{"title":"15-151 Review Notes","reason":"unplaced"},{"title":"15-122 Review Notes","reason":"unplaced"},{"title":"07-131 Review Notes","reason":"unplaced"}]}
+</script>
+
+<script type="application/json" id="data-tuned">
+{"window_start":"2026-09-12T00:00:00-04:00","window_days":14,"status":"FEASIBLE","objective":697977583.0,"best_bound":699388197.0,"blocks":[{"id":"fixed_math-found_2_13:00","title":"15151 Math Foundations","kind":"fixed","course_id":"math-found","start":"2026-09-14T13:00:00-04:00","end":"2026-09-14T13:50:00-04:00"},{"id":"fixed_matrices_2_09:00","title":"21241 Matrices","kind":"fixed","course_id":"matrices","start":"2026-09-14T09:00:00-04:00","end":"2026-09-14T09:50:00-04:00"},{"id":"fixed_fye-immig_2_16:00","title":"07128 First-Year Immigration","kind":"fixed","course_id":"fye-immig","start":"2026-09-14T16:00:00-04:00","end":"2026-09-14T16:50:00-04:00"},{"id":"fixed_hum-intel_2_19:00","title":"88230 Human Intelligence & Stupidity","kind":"fixed","course_id":"hum-intel","start":"2026-09-14T19:00:00-04:00","end":"2026-09-14T20:20:00-04:00"},{"id":"fixed_math-found_3_17:00","title":"15151 Math Foundations","kind":"fixed","course_id":"math-found","start":"2026-09-15T17:00:00-04:00","end":"2026-09-15T17:50:00-04:00"},{"id":"fixed_matrices_3_15:00","title":"21241 Matrices","kind":"fixed","course_id":"matrices","start":"2026-09-15T15:00:00-04:00","end":"2026-09-15T15:50:00-04:00"},{"id":"fixed_imp-comp_3_09:30","title":"15122 Imperative Computation","kind":"fixed","course_id":"imp-comp","start":"2026-09-15T09:30:00-04:00","end":"2026-09-15T10:50:00-04:00"},{"id":"fixed_imp-comp_3_19:00","title":"15122 Imperative Computation","kind":"fixed","course_id":"imp-comp","start":"2026-09-15T19:00:00-04:00","end":"2026-09-15T19:35:00-04:00"},{"id":"fixed_math-found_4_13:00","title":"15151 Math Foundations","kind":"fixed","course_id":"math-found","start":"2026-09-16T13:00:00-04:00","end":"2026-09-16T13:50:00-04:00"},{"id":"fixed_matrices_4_09:00","title":"21241 Matrices","kind":"fixed","course_id":"matrices","start":"2026-09-16T09:00:00-04:00","end":"2026-09-16T09:50:00-04:00"},{"id":"fixed_fye-immig_4_16:00","title":"07128 First-Year Immigration","kind":"fixed","course_id":"fye-immig","start":"2026-09-16T16:00:00-04:00","end":"2026-09-16T16:50:00-04:00"},{"id":"fixed_hum-intel_4_19:00","title":"88230 Human Intelligence & Stupidity","kind":"fixed","course_id":"hum-intel","start":"2026-09-16T19:00:00-04:00","end":"2026-09-16T20:20:00-04:00"},{"id":"fixed_math-found_6_13:00","title":"15151 Math Foundations","kind":"fixed","course_id":"math-found","start":"2026-09-18T13:00:00-04:00","end":"2026-09-18T13:50:00-04:00"},{"id":"fixed_matrices_6_09:00","title":"21241 Matrices","kind":"fixed","course_id":"matrices","start":"2026-09-18T09:00:00-04:00","end":"2026-09-18T09:50:00-04:00"},{"id":"fixed_imp-comp_6_17:00","title":"15122 Imperative Computation","kind":"fixed","course_id":"imp-comp","start":"2026-09-18T17:00:00-04:00","end":"2026-09-18T17:50:00-04:00"},{"id":"fixed_gpi_6_16:00","title":"07131 Great Practical Ideas for Computer Scientists","kind":"fixed","course_id":"gpi","start":"2026-09-18T16:00:00-04:00","end":"2026-09-18T16:50:00-04:00"},{"id":"fixed_math-found_9_13:00","title":"15151 Math Foundations","kind":"fixed","course_id":"math-found","start":"2026-09-21T13:00:00-04:00","end":"2026-09-21T13:50:00-04:00"},{"id":"fixed_matrices_9_09:00","title":"21241 Matrices","kind":"fixed","course_id":"matrices","start":"2026-09-21T09:00:00-04:00","end":"2026-09-21T09:50:00-04:00"},{"id":"fixed_fye-immig_9_16:00","title":"07128 First-Year Immigration","kind":"fixed","course_id":"fye-immig","start":"2026-09-21T16:00:00-04:00","end":"2026-09-21T16:50:00-04:00"},{"id":"fixed_hum-intel_9_19:00","title":"88230 Human Intelligence & Stupidity","kind":"fixed","course_id":"hum-intel","start":"2026-09-21T19:00:00-04:00","end":"2026-09-21T20:20:00-04:00"},{"id":"fixed_math-found_10_17:00","title":"15151 Math Foundations","kind":"fixed","course_id":"math-found","start":"2026-09-22T17:00:00-04:00","end":"2026-09-22T17:50:00-04:00"},{"id":"fixed_matrices_10_15:00","title":"21241 Matrices","kind":"fixed","course_id":"matrices","start":"2026-09-22T15:00:00-04:00","end":"2026-09-22T15:50:00-04:00"},{"id":"fixed_imp-comp_10_09:30","title":"15122 Imperative Computation","kind":"fixed","course_id":"imp-comp","start":"2026-09-22T09:30:00-04:00","end":"2026-09-22T10:50:00-04:00"},{"id":"fixed_imp-comp_10_19:00","title":"15122 Imperative Computation","kind":"fixed","course_id":"imp-comp","start":"2026-09-22T19:00:00-04:00","end":"2026-09-22T19:35:00-04:00"},{"id":"fixed_math-found_11_13:00","title":"15151 Math Foundations","kind":"fixed","course_id":"math-found","start":"2026-09-23T13:00:00-04:00","end":"2026-09-23T13:50:00-04:00"},{"id":"fixed_matrices_11_09:00","title":"21241 Matrices","kind":"fixed","course_id":"matrices","start":"2026-09-23T09:00:00-04:00","end":"2026-09-23T09:50:00-04:00"},{"id":"fixed_fye-immig_11_16:00","title":"07128 First-Year Immigration","kind":"fixed","course_id":"fye-immig","start":"2026-09-23T16:00:00-04:00","end":"2026-09-23T16:50:00-04:00"},{"id":"fixed_hum-intel_11_19:00","title":"88230 Human Intelligence & Stupidity","kind":"fixed","course_id":"hum-intel","start":"2026-09-23T19:00:00-04:00","end":"2026-09-23T20:20:00-04:00"},{"id":"fixed_math-found_13_13:00","title":"15151 Math Foundations","kind":"fixed","course_id":"math-found","start":"2026-09-25T13:00:00-04:00","end":"2026-09-25T13:50:00-04:00"},{"id":"fixed_matrices_13_09:00","title":"21241 Matrices","kind":"fixed","course_id":"matrices","start":"2026-09-25T09:00:00-04:00","end":"2026-09-25T09:50:00-04:00"},{"id":"fixed_imp-comp_13_17:00","title":"15122 Imperative Computation","kind":"fixed","course_id":"imp-comp","start":"2026-09-25T17:00:00-04:00","end":"2026-09-25T17:50:00-04:00"},{"id":"fixed_gpi_13_16:00","title":"07131 Great Practical Ideas for Computer Scientists","kind":"fixed","course_id":"gpi","start":"2026-09-25T16:00:00-04:00","end":"2026-09-25T16:50:00-04:00"},{"id":"routine_2_0","title":"Breakfast & Shower","kind":"fixed","course_id":null,"start":"2026-09-12T09:30:00-04:00","end":"2026-09-12T10:15:00-04:00"},{"id":"routine_4_0","title":"Lunch","kind":"fixed","course_id":null,"start":"2026-09-12T13:00:00-04:00","end":"2026-09-12T13:45:00-04:00"},{"id":"routine_5_0","title":"Dinner","kind":"fixed","course_id":null,"start":"2026-09-12T18:00:00-04:00","end":"2026-09-12T18:45:00-04:00"},{"id":"routine_2_1","title":"Breakfast & Shower","kind":"fixed","course_id":null,"start":"2026-09-13T09:30:00-04:00","end":"2026-09-13T10:15:00-04:00"},{"id":"routine_4_1","title":"Lunch","kind":"fixed","course_id":null,"start":"2026-09-13T13:00:00-04:00","end":"2026-09-13T13:45:00-04:00"},{"id":"routine_5_1","title":"Dinner","kind":"fixed","course_id":null,"start":"2026-09-13T18:00:00-04:00","end":"2026-09-13T18:45:00-04:00"},{"id":"routine_0_2","title":"Gym","kind":"fixed","course_id":null,"start":"2026-09-14T06:30:00-04:00","end":"2026-09-14T07:45:00-04:00"},{"id":"routine_1_2","title":"Breakfast & Shower","kind":"fixed","course_id":null,"start":"2026-09-14T07:45:00-04:00","end":"2026-09-14T08:30:00-04:00"},{"id":"routine_3_2","title":"Lunch","kind":"fixed","course_id":null,"start":"2026-09-14T12:00:00-04:00","end":"2026-09-14T12:45:00-04:00"},{"id":"routine_5_2","title":"Dinner","kind":"fixed","course_id":null,"start":"2026-09-14T18:00:00-04:00","end":"2026-09-14T18:45:00-04:00"},{"id":"routine_0_3","title":"Gym","kind":"fixed","course_id":null,"start":"2026-09-15T06:30:00-04:00","end":"2026-09-15T07:45:00-04:00"},{"id":"routine_1_3","title":"Breakfast & Shower","kind":"fixed","course_id":null,"start":"2026-09-15T07:45:00-04:00","end":"2026-09-15T08:30:00-04:00"},{"id":"routine_3_3","title":"Lunch","kind":"fixed","course_id":null,"start":"2026-09-15T12:00:00-04:00","end":"2026-09-15T12:45:00-04:00"},{"id":"routine_5_3","title":"Dinner","kind":"fixed","course_id":null,"start":"2026-09-15T18:00:00-04:00","end":"2026-09-15T18:45:00-04:00"},{"id":"routine_0_4","title":"Gym","kind":"fixed","course_id":null,"start":"2026-09-16T06:30:00-04:00","end":"2026-09-16T07:45:00-04:00"},{"id":"routine_1_4","title":"Breakfast & Shower","kind":"fixed","course_id":null,"start":"2026-09-16T07:45:00-04:00","end":"2026-09-16T08:30:00-04:00"},{"id":"routine_3_4","title":"Lunch","kind":"fixed","course_id":null,"start":"2026-09-16T12:00:00-04:00","end":"2026-09-16T12:45:00-04:00"},{"id":"routine_5_4","title":"Dinner","kind":"fixed","course_id":null,"start":"2026-09-16T18:00:00-04:00","end":"2026-09-16T18:45:00-04:00"},{"id":"routine_0_5","title":"Gym","kind":"fixed","course_id":null,"start":"2026-09-17T06:30:00-04:00","end":"2026-09-17T07:45:00-04:00"},{"id":"routine_1_5","title":"Breakfast & Shower","kind":"fixed","course_id":null,"start":"2026-09-17T07:45:00-04:00","end":"2026-09-17T08:30:00-04:00"},{"id":"routine_3_5","title":"Lunch","kind":"fixed","course_id":null,"start":"2026-09-17T12:00:00-04:00","end":"2026-09-17T12:45:00-04:00"},{"id":"routine_5_5","title":"Dinner","kind":"fixed","course_id":null,"start":"2026-09-17T18:00:00-04:00","end":"2026-09-17T18:45:00-04:00"},{"id":"routine_0_6","title":"Gym","kind":"fixed","course_id":null,"start":"2026-09-18T06:30:00-04:00","end":"2026-09-18T07:45:00-04:00"},{"id":"routine_1_6","title":"Breakfast & Shower","kind":"fixed","course_id":null,"start":"2026-09-18T07:45:00-04:00","end":"2026-09-18T08:30:00-04:00"},{"id":"routine_3_6","title":"Lunch","kind":"fixed","course_id":null,"start":"2026-09-18T12:00:00-04:00","end":"2026-09-18T12:45:00-04:00"},{"id":"routine_5_6","title":"Dinner","kind":"fixed","course_id":null,"start":"2026-09-18T18:00:00-04:00","end":"2026-09-18T18:45:00-04:00"},{"id":"routine_2_7","title":"Breakfast & Shower","kind":"fixed","course_id":null,"start":"2026-09-19T09:30:00-04:00","end":"2026-09-19T10:15:00-04:00"},{"id":"routine_4_7","title":"Lunch","kind":"fixed","course_id":null,"start":"2026-09-19T13:00:00-04:00","end":"2026-09-19T13:45:00-04:00"},{"id":"routine_5_7","title":"Dinner","kind":"fixed","course_id":null,"start":"2026-09-19T18:00:00-04:00","end":"2026-09-19T18:45:00-04:00"},{"id":"routine_2_8","title":"Breakfast & Shower","kind":"fixed","course_id":null,"start":"2026-09-20T09:30:00-04:00","end":"2026-09-20T10:15:00-04:00"},{"id":"routine_4_8","title":"Lunch","kind":"fixed","course_id":null,"start":"2026-09-20T13:00:00-04:00","end":"2026-09-20T13:45:00-04:00"},{"id":"routine_5_8","title":"Dinner","kind":"fixed","course_id":null,"start":"2026-09-20T18:00:00-04:00","end":"2026-09-20T18:45:00-04:00"},{"id":"routine_0_9","title":"Gym","kind":"fixed","course_id":null,"start":"2026-09-21T06:30:00-04:00","end":"2026-09-21T07:45:00-04:00"},{"id":"routine_1_9","title":"Breakfast & Shower","kind":"fixed","course_id":null,"start":"2026-09-21T07:45:00-04:00","end":"2026-09-21T08:30:00-04:00"},{"id":"routine_3_9","title":"Lunch","kind":"fixed","course_id":null,"start":"2026-09-21T12:00:00-04:00","end":"2026-09-21T12:45:00-04:00"},{"id":"routine_5_9","title":"Dinner","kind":"fixed","course_id":null,"start":"2026-09-21T18:00:00-04:00","end":"2026-09-21T18:45:00-04:00"},{"id":"routine_0_10","title":"Gym","kind":"fixed","course_id":null,"start":"2026-09-22T06:30:00-04:00","end":"2026-09-22T07:45:00-04:00"},{"id":"routine_1_10","title":"Breakfast & Shower","kind":"fixed","course_id":null,"start":"2026-09-22T07:45:00-04:00","end":"2026-09-22T08:30:00-04:00"},{"id":"routine_3_10","title":"Lunch","kind":"fixed","course_id":null,"start":"2026-09-22T12:00:00-04:00","end":"2026-09-22T12:45:00-04:00"},{"id":"routine_5_10","title":"Dinner","kind":"fixed","course_id":null,"start":"2026-09-22T18:00:00-04:00","end":"2026-09-22T18:45:00-04:00"},{"id":"routine_0_11","title":"Gym","kind":"fixed","course_id":null,"start":"2026-09-23T06:30:00-04:00","end":"2026-09-23T07:45:00-04:00"},{"id":"routine_1_11","title":"Breakfast & Shower","kind":"fixed","course_id":null,"start":"2026-09-23T07:45:00-04:00","end":"2026-09-23T08:30:00-04:00"},{"id":"routine_3_11","title":"Lunch","kind":"fixed","course_id":null,"start":"2026-09-23T12:00:00-04:00","end":"2026-09-23T12:45:00-04:00"},{"id":"routine_5_11","title":"Dinner","kind":"fixed","course_id":null,"start":"2026-09-23T18:00:00-04:00","end":"2026-09-23T18:45:00-04:00"},{"id":"routine_0_12","title":"Gym","kind":"fixed","course_id":null,"start":"2026-09-24T06:30:00-04:00","end":"2026-09-24T07:45:00-04:00"},{"id":"routine_1_12","title":"Breakfast & Shower","kind":"fixed","course_id":null,"start":"2026-09-24T07:45:00-04:00","end":"2026-09-24T08:30:00-04:00"},{"id":"routine_3_12","title":"Lunch","kind":"fixed","course_id":null,"start":"2026-09-24T12:00:00-04:00","end":"2026-09-24T12:45:00-04:00"},{"id":"routine_5_12","title":"Dinner","kind":"fixed","course_id":null,"start":"2026-09-24T18:00:00-04:00","end":"2026-09-24T18:45:00-04:00"},{"id":"routine_0_13","title":"Gym","kind":"fixed","course_id":null,"start":"2026-09-25T06:30:00-04:00","end":"2026-09-25T07:45:00-04:00"},{"id":"routine_1_13","title":"Breakfast & Shower","kind":"fixed","course_id":null,"start":"2026-09-25T07:45:00-04:00","end":"2026-09-25T08:30:00-04:00"},{"id":"routine_3_13","title":"Lunch","kind":"fixed","course_id":null,"start":"2026-09-25T12:00:00-04:00","end":"2026-09-25T12:45:00-04:00"},{"id":"routine_5_13","title":"Dinner","kind":"fixed","course_id":null,"start":"2026-09-25T18:00:00-04:00","end":"2026-09-25T18:45:00-04:00"},{"id":"hi-response-paper1__s1","title":"88-230 Work on Response Paper 1","kind":"flexible","course_id":"hum-intel","start":"2026-09-12T12:00:00-04:00","end":"2026-09-12T13:00:00-04:00"},{"id":"hi-response-paper1__s2","title":"88-230 Work on Response Paper 1","kind":"flexible","course_id":"hum-intel","start":"2026-09-12T10:15:00-04:00","end":"2026-09-12T11:15:00-04:00"},{"id":"hi-response-paper1__s3","title":"88-230 Work on Response Paper 1","kind":"flexible","course_id":"hum-intel","start":"2026-09-12T08:00:00-04:00","end":"2026-09-12T08:30:00-04:00"},{"id":"ic-pg2__s1","title":"15-122 Work on PG2","kind":"flexible","course_id":"imp-comp","start":"2026-09-12T13:45:00-04:00","end":"2026-09-12T14:45:00-04:00"},{"id":"mf-weak-induction__s1","title":"15-151 Study Section 4.2: Weak Induction","kind":"flexible","course_id":"math-found","start":"2026-09-12T17:00:00-04:00","end":"2026-09-12T18:00:00-04:00"},{"id":"hi-effects-of-intelligence__s1","title":"88-230 Work on Effects of Intelligence","kind":"flexible","course_id":"hum-intel","start":"2026-09-12T08:45:00-04:00","end":"2026-09-12T09:30:00-04:00"},{"id":"ic-ch3-checkin__s1","title":"15-122 Complete CH3 Checkin","kind":"flexible","course_id":"imp-comp","start":"2026-09-14T10:45:00-04:00","end":"2026-09-14T11:30:00-04:00"},{"id":"mx-recitation-quiz3__s1","title":"21-241 Study for Recitation 3","kind":"flexible","course_id":"matrices","start":"2026-09-15T08:30:00-04:00","end":"2026-09-15T09:30:00-04:00"},{"id":"mf-hw3-due__s1","title":"15-151 Work on HW3","kind":"flexible","course_id":"math-found","start":"2026-09-12T15:00:00-04:00","end":"2026-09-12T16:00:00-04:00"},{"id":"mf-hw3-due__s2","title":"15-151 Work on HW3","kind":"flexible","course_id":"math-found","start":"2026-09-13T13:45:00-04:00","end":"2026-09-13T14:45:00-04:00"},{"id":"mf-hw3-due__s3","title":"15-151 Work on HW3","kind":"flexible","course_id":"math-found","start":"2026-09-15T13:45:00-04:00","end":"2026-09-15T14:45:00-04:00"},{"id":"mf-hw3-due__s4","title":"15-151 Work on HW3","kind":"flexible","course_id":"math-found","start":"2026-09-13T20:15:00-04:00","end":"2026-09-13T21:15:00-04:00"},{"id":"mf-hw3-due__s5","title":"15-151 Work on HW3","kind":"flexible","course_id":"math-found","start":"2026-09-13T22:00:00-04:00","end":"2026-09-13T23:00:00-04:00"},{"id":"mf-hw3-due__s6","title":"15-151 Work on HW3","kind":"flexible","course_id":"math-found","start":"2026-09-13T10:15:00-04:00","end":"2026-09-13T11:15:00-04:00"},{"id":"mf-hw3-due__s7","title":"15-151 Work on HW3","kind":"flexible","course_id":"math-found","start":"2026-09-13T18:45:00-04:00","end":"2026-09-13T19:45:00-04:00"},{"id":"mf-hw3-due__s8","title":"15-151 Work on HW3","kind":"flexible","course_id":"math-found","start":"2026-09-14T14:45:00-04:00","end":"2026-09-14T15:45:00-04:00"},{"id":"mf-hw3-due__s9","title":"15-151 Work on HW3","kind":"flexible","course_id":"math-found","start":"2026-09-13T12:00:00-04:00","end":"2026-09-13T13:00:00-04:00"},{"id":"mf-hw3-due__s10","title":"15-151 Work on HW3","kind":"flexible","course_id":"math-found","start":"2026-09-14T22:00:00-04:00","end":"2026-09-14T23:00:00-04:00"},{"id":"mf-hw3-due__s11","title":"15-151 Work on HW3","kind":"flexible","course_id":"math-found","start":"2026-09-15T12:45:00-04:00","end":"2026-09-15T13:30:00-04:00"},{"id":"mf-4-3-strong-induction__s1","title":"15-151 Study Section 4.3: Strong Induction","kind":"flexible","course_id":"math-found","start":"2026-09-13T08:00:00-04:00","end":"2026-09-13T09:00:00-04:00"},{"id":"hi-human-vs-artificial__s1","title":"88-230 Work on Human Intelligence vs Artificial Intelligence","kind":"flexible","course_id":"hum-intel","start":"2026-09-16T14:45:00-04:00","end":"2026-09-16T15:30:00-04:00"},{"id":"hi-human-vs-artificial__s2","title":"88-230 Work on Human Intelligence vs Artificial Intelligence","kind":"flexible","course_id":"hum-intel","start":"2026-09-13T17:00:00-04:00","end":"2026-09-13T17:45:00-04:00"},{"id":"ic-pr3__s1","title":"15-122 Work on PR3","kind":"flexible","course_id":"imp-comp","start":"2026-09-13T15:45:00-04:00","end":"2026-09-13T16:45:00-04:00"},{"id":"mx-weekly-hw4__s1","title":"21-241 Work on Weekly HW 4 (Optional)","kind":"flexible","course_id":"matrices","start":"2026-09-15T21:45:00-04:00","end":"2026-09-15T22:45:00-04:00"},{"id":"mx-weekly-hw4__s2","title":"21-241 Work on Weekly HW 4 (Optional)","kind":"flexible","course_id":"matrices","start":"2026-09-17T18:45:00-04:00","end":"2026-09-17T19:45:00-04:00"},{"id":"mx-weekly-hw4__s3","title":"21-241 Work on Weekly HW 4 (Optional)","kind":"flexible","course_id":"matrices","start":"2026-09-14T08:30:00-04:00","end":"2026-09-14T09:00:00-04:00"},{"id":"mf-4-3-strong-induction-cont-l13__s1","title":"15-151 Study Section 4.3: Strong Induction (Continued)","kind":"flexible","course_id":"math-found","start":"2026-09-15T20:30:00-04:00","end":"2026-09-15T21:30:00-04:00"},{"id":"ic-pg3__s1","title":"15-122 Work on PG3","kind":"flexible","course_id":"imp-comp","start":"2026-09-16T21:15:00-04:00","end":"2026-09-16T22:15:00-04:00"},{"id":"ic-pg3__s2","title":"15-122 Work on PG3","kind":"flexible","course_id":"imp-comp","start":"2026-09-17T10:15:00-04:00","end":"2026-09-17T11:15:00-04:00"},{"id":"mf-midterm1__s1","title":"15-151 Study for Midterm 1","kind":"flexible","course_id":"math-found","start":"2026-09-17T22:00:00-04:00","end":"2026-09-17T23:00:00-04:00"},{"id":"hi-human-vs-animal__s1","title":"88-230 Work on Human Intelligence vs Animal Intelligence","kind":"flexible","course_id":"hum-intel","start":"2026-09-17T12:45:00-04:00","end":"2026-09-17T13:30:00-04:00"},{"id":"hi-human-vs-animal__s2","title":"88-230 Work on Human Intelligence vs Animal Intelligence","kind":"flexible","course_id":"hum-intel","start":"2026-09-16T10:45:00-04:00","end":"2026-09-16T11:30:00-04:00"},{"id":"mx-recitation-quiz4__s1","title":"21-241 Study for Recitation 4","kind":"flexible","course_id":"matrices","start":"2026-09-21T21:15:00-04:00","end":"2026-09-21T22:15:00-04:00"},{"id":"ic-ch4-checkin__s1","title":"15-122 Complete CH4 Checkin","kind":"flexible","course_id":"imp-comp","start":"2026-09-18T15:00:00-04:00","end":"2026-09-18T16:00:00-04:00"},{"id":"ic-ch4-checkin__s2","title":"15-122 Complete CH4 Checkin","kind":"flexible","course_id":"imp-comp","start":"2026-09-17T20:00:00-04:00","end":"2026-09-17T21:00:00-04:00"},{"id":"mf-4-3-strong-induction-cont-l14__s1","title":"15-151 Study Section 4.3: Strong Induction (Continued)","kind":"flexible","course_id":"math-found","start":"2026-09-20T18:45:00-04:00","end":"2026-09-20T19:45:00-04:00"},{"id":"hi-intro-to-stupidity__s1","title":"88-230 Work on Intro to Stupidity","kind":"flexible","course_id":"hum-intel","start":"2026-09-19T13:45:00-04:00","end":"2026-09-19T14:30:00-04:00"},{"id":"hi-intro-to-stupidity__s2","title":"88-230 Work on Intro to Stupidity","kind":"flexible","course_id":"hum-intel","start":"2026-09-17T17:00:00-04:00","end":"2026-09-17T17:45:00-04:00"},{"id":"ic-pr4__s1","title":"15-122 Work on PR4","kind":"flexible","course_id":"imp-comp","start":"2026-09-19T08:00:00-04:00","end":"2026-09-19T09:00:00-04:00"},{"id":"mx-exam1__s1","title":"21-241 Study for Exam 1","kind":"flexible","course_id":"matrices","start":"2026-09-19T17:00:00-04:00","end":"2026-09-19T18:00:00-04:00"},{"id":"mx-weekly-hw5__s1","title":"21-241 Work on Weekly HW 5 (Optional)","kind":"flexible","course_id":"matrices","start":"2026-09-18T10:45:00-04:00","end":"2026-09-18T11:45:00-04:00"},{"id":"mx-weekly-hw5__s2","title":"21-241 Work on Weekly HW 5 (Optional)","kind":"flexible","course_id":"matrices","start":"2026-09-17T08:30:00-04:00","end":"2026-09-17T09:30:00-04:00"},{"id":"mx-weekly-hw5__s3","title":"21-241 Work on Weekly HW 5 (Optional)","kind":"flexible","course_id":"matrices","start":"2026-09-14T21:15:00-04:00","end":"2026-09-14T21:45:00-04:00"},{"id":"mf-5-1-relations__s1","title":"15-151 Study Section 5.1: Relations","kind":"flexible","course_id":"math-found","start":"2026-09-17T14:00:00-04:00","end":"2026-09-17T15:00:00-04:00"},{"id":"review_math-found_2_13:00","title":"15-151 Review Notes","kind":"flexible","course_id":"math-found","start":"2026-09-14T14:00:00-04:00","end":"2026-09-14T14:30:00-04:00"},{"id":"review_matrices_2_09:00","title":"21-241 Review Notes","kind":"flexible","course_id":"matrices","start":"2026-09-14T10:00:00-04:00","end":"2026-09-14T10:30:00-04:00"},{"id":"review_fye-immig_2_16:00","title":"07-128 Review Notes","kind":"flexible","course_id":"fye-immig","start":"2026-09-14T17:00:00-04:00","end":"2026-09-14T17:30:00-04:00"},{"id":"review_hum-intel_2_19:00","title":"88-230 Review Notes","kind":"flexible","course_id":"hum-intel","start":"2026-09-14T20:30:00-04:00","end":"2026-09-14T21:00:00-04:00"},{"id":"review_matrices_3_15:00","title":"21-241 Review Notes","kind":"flexible","course_id":"matrices","start":"2026-09-15T16:00:00-04:00","end":"2026-09-15T16:30:00-04:00"},{"id":"review_imp-comp_3_09:30","title":"15-122 Review Notes","kind":"flexible","course_id":"imp-comp","start":"2026-09-15T11:00:00-04:00","end":"2026-09-15T11:30:00-04:00"},{"id":"review_imp-comp_3_19:00","title":"15-122 Review Notes","kind":"flexible","course_id":"imp-comp","start":"2026-09-15T19:45:00-04:00","end":"2026-09-15T20:15:00-04:00"},{"id":"review_math-found_4_13:00","title":"15-151 Review Notes","kind":"flexible","course_id":"math-found","start":"2026-09-16T14:00:00-04:00","end":"2026-09-16T14:30:00-04:00"},{"id":"review_matrices_4_09:00","title":"21-241 Review Notes","kind":"flexible","course_id":"matrices","start":"2026-09-16T10:00:00-04:00","end":"2026-09-16T10:30:00-04:00"},{"id":"review_fye-immig_4_16:00","title":"07-128 Review Notes","kind":"flexible","course_id":"fye-immig","start":"2026-09-16T17:00:00-04:00","end":"2026-09-16T17:30:00-04:00"},{"id":"review_hum-intel_4_19:00","title":"88-230 Review Notes","kind":"flexible","course_id":"hum-intel","start":"2026-09-16T20:30:00-04:00","end":"2026-09-16T21:00:00-04:00"},{"id":"review_math-found_6_13:00","title":"15-151 Review Notes","kind":"flexible","course_id":"math-found","start":"2026-09-18T14:00:00-04:00","end":"2026-09-18T14:30:00-04:00"},{"id":"review_matrices_6_09:00","title":"21-241 Review Notes","kind":"flexible","course_id":"matrices","start":"2026-09-18T10:00:00-04:00","end":"2026-09-18T10:30:00-04:00"},{"id":"review_math-found_9_13:00","title":"15-151 Review Notes","kind":"flexible","course_id":"math-found","start":"2026-09-21T14:00:00-04:00","end":"2026-09-21T14:30:00-04:00"},{"id":"review_matrices_9_09:00","title":"21-241 Review Notes","kind":"flexible","course_id":"matrices","start":"2026-09-21T10:00:00-04:00","end":"2026-09-21T10:30:00-04:00"},{"id":"review_fye-immig_9_16:00","title":"07-128 Review Notes","kind":"flexible","course_id":"fye-immig","start":"2026-09-21T17:00:00-04:00","end":"2026-09-21T17:30:00-04:00"},{"id":"review_hum-intel_9_19:00","title":"88-230 Review Notes","kind":"flexible","course_id":"hum-intel","start":"2026-09-21T20:30:00-04:00","end":"2026-09-21T21:00:00-04:00"},{"id":"review_matrices_10_15:00","title":"21-241 Review Notes","kind":"flexible","course_id":"matrices","start":"2026-09-22T16:00:00-04:00","end":"2026-09-22T16:30:00-04:00"},{"id":"review_imp-comp_10_09:30","title":"15-122 Review Notes","kind":"flexible","course_id":"imp-comp","start":"2026-09-22T11:00:00-04:00","end":"2026-09-22T11:30:00-04:00"},{"id":"review_imp-comp_10_19:00","title":"15-122 Review Notes","kind":"flexible","course_id":"imp-comp","start":"2026-09-22T19:45:00-04:00","end":"2026-09-22T20:15:00-04:00"},{"id":"review_math-found_11_13:00","title":"15-151 Review Notes","kind":"flexible","course_id":"math-found","start":"2026-09-23T14:00:00-04:00","end":"2026-09-23T14:30:00-04:00"},{"id":"review_matrices_11_09:00","title":"21-241 Review Notes","kind":"flexible","course_id":"matrices","start":"2026-09-23T10:00:00-04:00","end":"2026-09-23T10:30:00-04:00"},{"id":"review_fye-immig_11_16:00","title":"07-128 Review Notes","kind":"flexible","course_id":"fye-immig","start":"2026-09-23T17:00:00-04:00","end":"2026-09-23T17:30:00-04:00"},{"id":"review_hum-intel_11_19:00","title":"88-230 Review Notes","kind":"flexible","course_id":"hum-intel","start":"2026-09-23T20:30:00-04:00","end":"2026-09-23T21:00:00-04:00"},{"id":"review_math-found_13_13:00","title":"15-151 Review Notes","kind":"flexible","course_id":"math-found","start":"2026-09-25T14:00:00-04:00","end":"2026-09-25T14:30:00-04:00"},{"id":"review_matrices_13_09:00","title":"21-241 Review Notes","kind":"flexible","course_id":"matrices","start":"2026-09-25T10:00:00-04:00","end":"2026-09-25T10:30:00-04:00"}],"unplaced":[{"title":"88-230 Work on Assignment 1","reason":"out_of_window"},{"title":"88-230 Work on Assignment 1","reason":"out_of_window"},{"title":"88-230 Work on Assignment 1","reason":"out_of_window"},{"title":"88-230 Work on Assignment 1","reason":"out_of_window"},{"title":"88-230 Work on Assignment 1","reason":"out_of_window"},{"title":"15-122 Complete CH7 Checkin","reason":"out_of_window"},{"title":"15-122 Complete CH7 Checkin","reason":"out_of_window"},{"title":"21-241 Work on Weekly HW 9 (Optional)","reason":"out_of_window"},{"title":"21-241 Work on Weekly HW 9 (Optional)","reason":"out_of_window"},{"title":"21-241 Work on Weekly HW 9 (Optional)","reason":"out_of_window"},{"title":"15-151 Study Section 6.2: Countable and Uncountable Sets","reason":"out_of_window"},{"title":"88-230 Work on Assignment 2","reason":"out_of_window"},{"title":"88-230 Work on Assignment 2","reason":"out_of_window"},{"title":"88-230 Work on Assignment 2","reason":"out_of_window"},{"title":"88-230 Work on Assignment 2","reason":"out_of_window"},{"title":"88-230 Work on Assignment 2","reason":"out_of_window"},{"title":"15-122 Complete CH13 Checkin","reason":"out_of_window"},{"title":"15-122 Complete CH13 Checkin","reason":"out_of_window"},{"title":"21-241 Study for Recitation 13","reason":"out_of_window"},{"title":"15-151 Work on Some More Probability","reason":"out_of_window"},{"title":"88-230 Work on RPP Extra Credit","reason":"out_of_window"},{"title":"88-230 Work on Response Paper 5","reason":"out_of_window"},{"title":"88-230 Work on Response Paper 5","reason":"out_of_window"},{"title":"88-230 Work on Response Paper 5","reason":"out_of_window"},{"title":"15-151 Review Notes","reason":"unplaced"},{"title":"15-122 Review Notes","reason":"unplaced"},{"title":"07-131 Review Notes","reason":"unplaced"},{"title":"15-151 Review Notes","reason":"unplaced"},{"title":"15-122 Review Notes","reason":"unplaced"},{"title":"07-131 Review Notes","reason":"unplaced"}]}
+</script>
+
+<script>
+(function () {
+  "use strict";
+
+  const COURSES = [
+    { id: "math-found", code: "15-151", name: "Math Foundations", sw: "var(--c1)" },
+    { id: "matrices",   code: "21-241", name: "Matrices", sw: "var(--c2)" },
+    { id: "imp-comp",   code: "15-122", name: "Imperative Computation", sw: "var(--c3)" },
+    { id: "fye-immig",  code: "07-128", name: "First-Year Immigration", sw: "var(--c4)" },
+    { id: "gpi",        code: "07-131", name: "Great Practical Ideas for CS", sw: "var(--c5)" },
+    { id: "hum-intel",  code: "88-230", name: "Human Intelligence & Stupidity", sw: "var(--c6)" },
+  ];
+  const COURSE_BY_ID = Object.fromEntries(COURSES.map((c) => [c.id, c]));
+  const PERSONAL = { sw: "var(--ink-muted)" };  // gym/meals: course_id is null
+
+  const OWED = { "math-found": 2.0, "matrices": 3.5, "hum-intel": 12.8, "imp-comp": 4.0 };
+  const OWED_MAX = 15;
+
+  // Computed by eval.py against these exact runs -- see backend/optimizer/README.md
+  const EVAL = {
+    none: { placed: 70, unplaced: 6, busiest: 765, evening: 38, gaps: 31, crammed: 2, crammedOf: 49 },
+    tuned: { placed: 70, unplaced: 6, busiest: 525, evening: 39, gaps: 0, crammed: 1, crammedOf: 49 },
+  };
+
+  const DAY_START_MIN = 8 * 60;
+  const DAY_END_MIN = 23 * 60;
+  const HOUR_PX = 52;
+  const WINDOW_DAYS = 14;
+
+  function parseWall(iso) {
+    const [datePart, timePart] = iso.split("T");
+    const [y, m, d] = datePart.split("-").map(Number);
+    const [hh, mm] = timePart.slice(0, 5).split(":").map(Number);
+    return { y, m, d, minutesOfDay: hh * 60 + mm };
+  }
+  function dayIndex(iso, windowStartIso) {
+    const a = parseWall(iso), b = parseWall(windowStartIso);
+    return Math.round((Date.UTC(a.y, a.m - 1, a.d) - Date.UTC(b.y, b.m - 1, b.d)) / 86400000);
+  }
+  function fmtTime(minutesOfDay) {
+    const h24 = Math.floor(minutesOfDay / 60), mm = minutesOfDay % 60;
+    const ap = h24 < 12 ? "AM" : "PM";
+    let h = h24 % 12; if (h === 0) h = 12;
+    return mm === 0 ? `${h} ${ap}` : `${h}:${String(mm).padStart(2, "0")} ${ap}`;
+  }
+
+  const data = { none: JSON.parse(document.getElementById("data-none").textContent), tuned: JSON.parse(document.getElementById("data-tuned").textContent) };
+
+  function render(profile) {
+    const d = data[profile];
+    const cal = document.getElementById("cal");
+    cal.style.setProperty("--days", WINDOW_DAYS);
+    cal.style.setProperty("--hour-px", HOUR_PX + "px");
+    cal.innerHTML = "";
+
+    cal.appendChild(Object.assign(document.createElement("div"), { className: "corner" }));
+    for (let i = 0; i < WINDOW_DAYS; i++) {
+      const w = parseWall(d.window_start);
+      const dt = new Date(Date.UTC(w.y, w.m - 1, w.d + i));
+      const dow = dt.toLocaleDateString("en-US", { weekday: "short", timeZone: "UTC" });
+      const md = dt.toLocaleDateString("en-US", { month: "numeric", day: "numeric", timeZone: "UTC" });
+      const head = document.createElement("div");
+      head.className = "day-head" + (i === 0 ? " today" : "");
+      head.innerHTML = `<span class="dow serif">${dow}</span><span class="date mono">${md}</span>`;
+      cal.appendChild(head);
+    }
+
+    const bodyHeight = ((DAY_END_MIN - DAY_START_MIN) / 60) * HOUR_PX;
+    const hourCol = document.createElement("div");
+    hourCol.className = "hour-col";
+    hourCol.style.height = bodyHeight + "px";
+    for (let h = 8; h <= 23; h++) {
+      const lbl = document.createElement("div");
+      lbl.className = "hour-label mono";
+      lbl.style.top = ((h - 8) * HOUR_PX) + "px";
+      lbl.textContent = fmtTime(h * 60).replace(":00", "");
+      hourCol.appendChild(lbl);
+    }
+    cal.appendChild(hourCol);
+
+    const dayCols = [];
+    for (let i = 0; i < WINDOW_DAYS; i++) {
+      const col = document.createElement("div");
+      col.className = "day-col";
+      col.style.height = bodyHeight + "px";
+      cal.appendChild(col);
+      dayCols.push(col);
+    }
+
+    for (const b of d.blocks) {
+      const start = parseWall(b.start), end = parseWall(b.end);
+      const di = dayIndex(b.start, d.window_start);
+      if (di < 0 || di >= WINDOW_DAYS) continue;
+      const top = ((start.minutesOfDay - DAY_START_MIN) / 60) * HOUR_PX;
+      const height = Math.max(11, ((end.minutesOfDay - start.minutesOfDay) / 60) * HOUR_PX - 2);
+      const course = COURSE_BY_ID[b.course_id] || (b.kind === "fixed" ? PERSONAL : null);
+
+      const el = document.createElement("div");
+      el.className = "block" + (b.kind === "fixed" ? " fixed" : "");
+      el.style.top = top + "px";
+      el.style.height = height + "px";
+      el.style.setProperty("--course-color", course ? course.sw : "var(--ink-muted)");
+      el.tabIndex = 0;
+
+      const dur = end.minutesOfDay - start.minutesOfDay;
+      const showText = height >= 22;
+      el.innerHTML = showText
+        ? `<span class="t">${b.kind === "fixed" ? '<svg class="lock" viewBox="0 0 24 24" fill="currentColor"><path d="M12 1a5 5 0 0 0-5 5v3H6a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-9a2 2 0 0 0-2-2h-1V6a5 5 0 0 0-5-5Zm-3 8V6a3 3 0 0 1 6 0v3Z"/></svg>' : ""}${b.title}</span>`
+        : "";
+
+      const tip = document.getElementById("tip");
+      const showTip = (ev) => {
+        tip.querySelector(".tt").textContent = b.title;
+        tip.querySelector(".tm").textContent = `${fmtTime(start.minutesOfDay)}-${fmtTime(end.minutesOfDay)} | ${dur} min${b.kind === "fixed" ? " | locked" : ""}`;
+        tip.style.opacity = 1;
+        moveTip(ev);
+      };
+      const moveTip = (ev) => {
+        const x = (ev.clientX ?? ev.target.getBoundingClientRect().left) + 14;
+        const y = (ev.clientY ?? ev.target.getBoundingClientRect().top) + 14;
+        tip.style.left = Math.min(x, window.innerWidth - 260) + "px";
+        tip.style.top = y + "px";
+      };
+      el.addEventListener("mouseenter", showTip);
+      el.addEventListener("mousemove", moveTip);
+      el.addEventListener("mouseleave", () => (tip.style.opacity = 0));
+      el.addEventListener("focus", showTip);
+      el.addEventListener("blur", () => (tip.style.opacity = 0));
+
+      dayCols[di].appendChild(el);
+    }
+
+    renderStats(d, profile);
+    renderDiagnostics(d, profile);
+    renderOwed();
+  }
+
+  function renderStats(d, profile) {
+    // Bound >= objective for a maximization problem until proven optimal --
+    // gap is (bound - objective), not the other way around.
+    const gap = d.objective ? Math.max(0, (d.best_bound - d.objective) / d.objective) : 0;
+    document.getElementById("stats").innerHTML = `
+      <div class="stat-chip"><span class="label">Status</span><span class="value mono">${d.status}</span></div>
+      <div class="stat-chip good"><span class="label">Optimized</span><span class="value mono">${(100 * (1 - gap)).toFixed(2)}%</span></div>
+    `;
+  }
+
+  function renderDiagnostics(d, profile) {
+    const e = EVAL[profile];
+    const outOfWindow = d.unplaced.filter((u) => u.reason === "out_of_window");
+    document.getElementById("diagnostics").innerHTML = `
+      <div class="diag-line"><span>Sessions placed</span><span class="n">${e.placed}</span></div>
+      <div class="diag-line"><span>Due later, out of scope</span><span class="n">${outOfWindow.length}</span></div>
+      <div class="diag-line ${e.busiest > 480 ? "warn" : "ok"}"><span>Busiest day</span><span class="n">${(e.busiest / 60).toFixed(1)}h</span></div>
+      <div class="diag-line ${e.evening < 60 ? "warn" : "ok"}"><span>In evening hours (5-11pm)</span><span class="n">${e.evening}%</span></div>
+      <div class="diag-line ${e.gaps > 0 ? "warn" : "ok"}"><span>Back-to-back (&lt;15min) pairs</span><span class="n">${e.gaps}</span></div>
+      <div class="diag-line ${e.crammed > 0 ? "warn" : "ok"}"><span>Multi-part tasks crammed on 1 day</span><span class="n">${e.crammed} / ${e.crammedOf}</span></div>
+      <details><summary>Show the ${outOfWindow.length} out-of-window items</summary><ul>${outOfWindow.map((u) => `<li>${u.title}</li>`).join("")}</ul></details>
+    `;
+  }
+
+  function renderOwed() {
+    document.getElementById("owed").innerHTML = Object.entries(OWED)
+      .sort((a, b) => b[1] - a[1])
+      .map(([cid, hrs]) => {
+        const c = COURSE_BY_ID[cid];
+        const pct = Math.min(100, (hrs / OWED_MAX) * 100);
+        return `<div class="owed-row">
+          <span class="oname">${c.code}</span>
+          <span class="owed-bar-track"><span class="owed-bar-fill" style="width:${pct}%; background:${c.sw}"></span></span>
+          <span class="ohrs">${hrs.toFixed(1)}h</span>
+        </div>`;
+      })
+      .join("");
+  }
+
+  document.getElementById("legend").innerHTML = COURSES.map(
+    (c) => `<div class="legend-row"><span class="swatch" style="--sw:${c.sw}"></span><span class="code">${c.code}</span><span class="name">${c.name}</span></div>`
+  ).join("") + `<div class="legend-row"><span class="swatch" style="--sw:${PERSONAL.sw}"></span><span class="code">&mdash;</span><span class="name">Personal (gym, meals)</span></div>`;
+
+  document.querySelectorAll(".toggle button").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      document.querySelectorAll(".toggle button").forEach((b) => b.setAttribute("aria-pressed", "false"));
+      btn.setAttribute("aria-pressed", "true");
+      render(btn.dataset.profile);
+    });
+  });
+
+  render("none");
+})();
+</script>
