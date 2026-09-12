@@ -417,6 +417,51 @@ correct, not a bug), but it hasn't been re-examined carefully against the
 urgency fix yet -- worth another look at the actual output before deciding
 whether a dedicated same-course-spacing preference is still needed on top.
 
+## Round 5: what happens off this machine
+
+Prompted by "would this look bad hosted somewhere, not run locally" --
+`scheduler.py` hardcoded `solver.parameters.num_search_workers = 8`, which
+happens to be exactly this dev machine's core count (an Apple M2, checked via
+`sysctl`), not a number anyone actually chose. CP-SAT's parallel search only
+gets real speedup from workers that map to real cores; a typical cheap cloud
+tier doesn't have 8. Rather than guess what that means, measured it directly
+-- `num_search_workers` is now a real parameter (`None` -> `os.cpu_count()`)
+instead of a hardcoded 8, and here's what the same `tuned` profile / same
+test data produces at 1 and 2 workers, standing in for "a cheap shared vCPU
+tier" and "a modest 2-vCPU tier":
+
+| workers | budget | status | placed | gap |
+|---|---|---|---|---|
+| 8 (this machine) | 15s | FEASIBLE | 70 | 0.18% |
+| 2 | 10s | FEASIBLE | 69 | 1.81% |
+| 2 | 15s | FEASIBLE | 70 | 0.25% |
+| 1 | 15s | FEASIBLE | 66 | 6.42% |
+| 1 | 30s / 45s / 60s | FEASIBLE | 66 (all three) | 6.35% (all three) |
+
+Two real findings, not one:
+
+- **2 workers is nearly indistinguishable from 8** at the same 15s budget --
+  0.25% gap vs. 0.18%, both placing all 70 sessions. A modest 2-vCPU host
+  costs almost nothing here.
+- **1 worker is a genuinely different, worse regime -- and more time does not
+  fix it.** 30s, 45s, and 60s all produced the *identical* result (66 placed,
+  6.35% gap) as 15s did. This isn't "slower," it's stuck: single-threaded
+  CP-SAT search settled into a local optimum that parallel portfolio search
+  (even just 2 workers trying different strategies) escapes and pure serial
+  search doesn't, no matter how long it runs. 4 fewer sessions placed is a
+  real, visible quality regression a demo audience would actually notice, not
+  a rounding difference.
+- This test's "1 worker" is also a best-case stand-in for "1 core" -- it had
+  one full, uncontended CPU core the whole time. Several free-tier hosts
+  (Render's free web service is 0.1 CPU) give a *fraction* of a core, not a
+  whole one; that would plausibly be worse than the 6.35%/66-placed number
+  above, not the same.
+
+**Practical takeaway**: deployment doesn't need to be expensive, but it does
+need to specifically guarantee at least 2 real vCPUs -- check that explicitly
+when picking a plan/tier rather than taking whatever a free default gives.
+That's a cheap, common tier on Railway/Render/Fly.io, not a premium one.
+
 ## Known gaps, not yet built
 
 - Exam/fixed-time tasks aren't materialized as locked blocks (see above) --

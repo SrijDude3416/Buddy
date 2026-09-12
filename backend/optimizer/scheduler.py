@@ -23,6 +23,7 @@ Core mechanics, matching CLAUDE.md's "Scheduling engine (CP-SAT)" section:
 from __future__ import annotations
 
 import math
+import os
 from dataclasses import dataclass
 from datetime import datetime, timedelta, time
 
@@ -73,6 +74,7 @@ def build_and_solve(
     personal_blocks: list[MeetingTime] = (),
     now_slot: int = 0,
     max_time_in_seconds: float = 15.0,  # bumped from 10 -- see README.md's "Round 4" on solve-time variance
+    num_search_workers: int | None = None,  # None -> os.cpu_count(); see README.md's "Round 5" before hardcoding this
 ) -> SolveResult:
     total_slots = window_days * SLOTS_PER_DAY
     window_end = window_start + timedelta(days=window_days)
@@ -284,7 +286,16 @@ def build_and_solve(
 
     solver = cp_model.CpSolver()
     solver.parameters.max_time_in_seconds = max_time_in_seconds
-    solver.parameters.num_search_workers = 8
+    # Was hardcoded to 8 -- which happens to be exactly this dev machine's
+    # core count, not a considered choice for wherever this actually runs.
+    # CP-SAT's parallel search only gets real speedup from workers that map
+    # to real cores; asking for more workers than a host actually has means
+    # they time-slice one CPU instead of running in parallel, which is not
+    # the same as "8 workers" in any solve-quality sense. Auto-detect by
+    # default; a caller on genuinely constrained hardware (a small container)
+    # should pass the real number, not trust os.cpu_count() to reflect a
+    # cgroup quota -- it doesn't.
+    solver.parameters.num_search_workers = num_search_workers or os.cpu_count() or 1
     status = solver.Solve(model)
 
     placed: list[PlacedBlock] = list(placed_fixed)
