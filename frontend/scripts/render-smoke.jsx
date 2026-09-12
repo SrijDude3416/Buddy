@@ -98,7 +98,7 @@ renders(
   ['Building your week', 'Compiling your preferences into constraints', 'progressbar'],
 );
 renders('FirstLook', withProviders(<FirstLook onContinue={() => {}} />), ['a first look', 'Radial', 'Goals', 'List', 'best possible schedule']);
-renders('PlanPage', withProviders(<PlanPage onOpenTask={() => {}} />), ['Today', 'Coming up', 'Rows are goals, not days', 'Your classes']);
+renders('PlanPage', withProviders(<PlanPage onOpenTask={() => {}} />), ['Today', 'Coming up', 'Your classes']);
 renders('ClassesPage', withProviders(<ClassesPage />), ['Classes', plan.goals[0].title]);
 renders('TaskDetail', withProviders(<TaskDetail taskId={payload.tasks[0]._id} onBack={() => {}} />), [payload.tasks[0].display_title, 'Ask Buddy about this']);
 renders('TaskDetail (missing task)', withProviders(<TaskDetail taskId="nope" onBack={() => {}} />), ['no longer in this week']);
@@ -108,7 +108,7 @@ console.log('\nnew layout pieces');
 renders('CalendarView (week)', withProviders(<CalendarView plan={plan} days={days} selectedOffset={0} onSelectDay={() => {}} onOpenTask={() => {}} />), ['progressbar'].slice(0, 0).concat(['AM']));
 renders('CalendarView (single day)', withProviders(<CalendarView plan={plan} days={days.slice(0, 1)} selectedOffset={0} onSelectDay={() => {}} onOpenTask={() => {}} />), ['Today']);
 renders('GoalSwimlanes (rows are goals)', withProviders(<GoalSwimlanes plan={plan} offset={0} dayLabel="Today" onOpenTask={() => {}} />), [plan.goals[0].code, 'under the class they serve']);
-renders('ClassLegend', withProviders(<ClassLegend plan={plan} selectedOffset={0} dayLabel="Today" />), ['Your classes', plan.goals[0].code, 'Block types', 'be moved']);
+renders('ClassLegend', withProviders(<ClassLegend plan={plan} selectedOffset={0} dayLabel="Today" />), ['Your classes', plan.goals[0].code, 'class time', 'ask Buddy']);
 renders('ThemeToggle', withProviders(<ThemeToggle />), ['Light', 'Dark', 'System']);
 renders(
   'CourseSelect (closed)',
@@ -131,6 +131,20 @@ renders(
   <span>{String(plan.goals.every((g) => calHtml.includes(plan.colorMap.get(g.id).rail.split(' ')[0])))}</span>,
   ['true'],
 );
+// Immovable class time is class-colored too, one shade deeper — the lock says
+// "can't move", the color says "which class". A neutral/black lecture block
+// breaks the one-color-per-class rule on exactly the day a student reads it.
+renders(
+  'locked class time carries its own class color',
+  <span>
+    {String(
+      plan.goals
+        .filter((g) => plan.fixedBlocks.some((b) => b.courseId === g.id))
+        .every((g) => calHtml.includes(plan.colorMap.get(g.id).strongTint.split(' ')[0])),
+    )}
+  </span>,
+  ['true'],
+);
 
 console.log('\ncopy rules');
 const hubHtml = renderToString(withProviders(<PlanPage onOpenTask={() => {}} />));
@@ -139,6 +153,7 @@ const hubHtml = renderToString(withProviders(<PlanPage onOpenTask={() => {}} />)
 // stays free of due-date/priority form controls.
 renders('no absolute dates in Coming up', <span>{String(!/\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2}\b/.test(hubHtml))}</span>, ['true']);
 renders('deadlines are still relative', <span>{String(/in \d+ days|today|tomorrow/i.test(hubHtml))}</span>, ['true']);
+renders('optimality is shown as the complement of the gap', <span>{String(/\d+\.\d% optimal schedule/.test(hubHtml))}</span>, ['true']);
 const taskHtml = renderToString(withProviders(<TaskDetail taskId={payload.tasks[0]._id} onBack={() => {}} />));
 renders('task page has no priority/due-date form control', <span>{String(!/<select|type="date"/.test(taskHtml))}</span>, ['true']);
 

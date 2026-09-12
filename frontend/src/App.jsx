@@ -140,7 +140,7 @@ function Shell() {
 
   if (resuming) {
     return (
-      <div className="min-h-screen bg-stone-100 dark:bg-stone-950 flex items-center justify-center gap-2 text-stone-500 dark:text-stone-400">
+      <div className="min-h-screen bg-stone-50 dark:bg-stone-950 flex items-center justify-center gap-2 text-stone-500 dark:text-stone-400">
         <Spinner className="w-4 h-4" />
         <span className="text-sm">Loading your week</span>
       </div>
@@ -152,7 +152,7 @@ function Shell() {
   const wide = phase === 'hub';
 
   return (
-    <div className="min-h-screen bg-stone-100 dark:bg-stone-950 text-stone-900 dark:text-stone-100 font-sans flex items-start justify-center p-4 sm:p-6">
+    <div className="min-h-screen bg-stone-50 dark:bg-stone-950 text-stone-900 dark:text-stone-100 font-sans flex items-start justify-center p-4 sm:p-6">
       <div className={`w-full ${wide ? 'max-w-6xl' : 'max-w-xl'}`}>
         {phase === 'onboarding' && (
           <Onboarding
@@ -196,7 +196,7 @@ function Gate() {
 
   if (status === 'loading') {
     return (
-      <div className="min-h-screen bg-stone-100 dark:bg-stone-950 flex items-center justify-center">
+      <div className="min-h-screen bg-stone-50 dark:bg-stone-950 flex items-center justify-center">
         <Spinner className="w-5 h-5 text-stone-400" />
       </div>
     );
@@ -206,7 +206,7 @@ function Gate() {
   // showing a sign-in button here would just fail again.
   if (status === 'error') {
     return (
-      <div className="min-h-screen bg-stone-100 dark:bg-stone-950 flex items-center justify-center p-6">
+      <div className="min-h-screen bg-stone-50 dark:bg-stone-950 flex items-center justify-center p-6">
         <div className="w-full max-w-sm">
           <ErrorNotice error={error} onRetry={refresh} title="Can't reach Buddy" />
         </div>

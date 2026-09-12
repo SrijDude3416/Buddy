@@ -2,6 +2,10 @@
 // The color key that sits next to the calendar. It is not only a legend: each
 // row also carries that class's progress and next deadline, so the panel answers
 // "which color is which class" and "how is that class going" at once.
+//
+// Deliberately quiet: one line of numbers per class, not three. The row already
+// says how much time the day holds for a class through the calendar next to it,
+// so the panel's job is orientation, not a second dashboard.
 // ---------------------------------------------------------------------------
 
 import { Lock } from 'lucide-react';
@@ -10,17 +14,17 @@ import { colorFor } from '../../lib/courseColors.js';
 export function ClassLegend({ plan, selectedOffset, dayLabel }) {
   if (!plan.goals.length) {
     return (
-      <div className="bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 rounded-xl px-4 py-3">
+      <div className="bg-white dark:bg-stone-900 border border-stone-200/70 dark:border-stone-800 rounded-2xl px-4 py-3">
         <p className="text-sm text-stone-400 dark:text-stone-500">No classes yet.</p>
       </div>
     );
   }
 
   return (
-    <div className="bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 rounded-xl px-4 py-3 space-y-3">
-      <p className="text-sm font-medium text-stone-700 dark:text-stone-200">Your classes</p>
+    <div className="self-start bg-white dark:bg-stone-900 border border-stone-200/70 dark:border-stone-800 rounded-2xl px-4 py-4 space-y-4">
+      <p className="text-sm font-medium text-stone-500 dark:text-stone-400">Your classes</p>
 
-      <div className="space-y-3">
+      <div className="space-y-3.5">
         {plan.goals.map((goal) => {
           const color = colorFor(plan.colorMap, goal.id);
           const todayMin = [
@@ -30,26 +34,23 @@ export function ClassLegend({ plan, selectedOffset, dayLabel }) {
 
           return (
             <div key={goal.id}>
-              <div className="flex items-start gap-2">
-                <span className={`w-3 h-3 rounded-sm shrink-0 mt-0.5 ${color.dot}`} />
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium text-stone-900 dark:text-stone-100 truncate" title={goal.title}>
-                    {goal.code ?? goal.title}
-                  </p>
-                  <p className="text-xs text-stone-500 dark:text-stone-400 truncate">{goal.title}</p>
-                </div>
+              <div className="flex items-center gap-2">
+                <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${color.dot}`} />
+                <p className="text-sm font-medium text-stone-800 dark:text-stone-100 truncate flex-1" title={goal.title}>
+                  {goal.code ?? goal.title}
+                </p>
+                {goal.dueLabel && (
+                  <span className="text-[11px] text-stone-400 dark:text-stone-500 shrink-0">{goal.dueLabel}</span>
+                )}
               </div>
 
-              <div className="pl-5 mt-1.5 space-y-1">
-                <div className="h-1.5 bg-stone-100 dark:bg-stone-800 rounded-full overflow-hidden">
+              <div className="pl-4 mt-1.5 space-y-1">
+                <div className="h-1 bg-stone-100 dark:bg-stone-800 rounded-full overflow-hidden">
                   <div className={`h-full rounded-full transition-all ${color.rail}`} style={{ width: `${goal.progress}%` }} />
                 </div>
-                <div className="flex items-center justify-between gap-2 text-[11px] text-stone-500 dark:text-stone-400">
-                  <span>{goal.progress}% done</span>
-                  {goal.dueLabel && <span className="truncate">{goal.deadlineLabel} {goal.dueLabel}</span>}
-                </div>
                 <p className="text-[11px] text-stone-400 dark:text-stone-500">
-                  {todayMin ? `${todayMin} min on ${dayLabel.toLowerCase()}` : `nothing ${dayLabel.toLowerCase()}`}
+                  {goal.progress}% done
+                  {todayMin ? ` · ${todayMin} min ${dayLabel.toLowerCase()}` : ''}
                 </p>
               </div>
             </div>
@@ -57,19 +58,10 @@ export function ClassLegend({ plan, selectedOffset, dayLabel }) {
         })}
       </div>
 
-      <div className="pt-2 border-t border-stone-200 dark:border-stone-800 space-y-1.5">
-        <p className="text-[11px] font-medium text-stone-500 dark:text-stone-400">Block types</p>
-        <span className="flex items-center gap-1.5 text-[11px] text-stone-500 dark:text-stone-400">
-          <span className="w-3 h-3 rounded-sm bg-stone-700 inline-flex items-center justify-center shrink-0">
-            <Lock className="w-2 h-2 text-stone-300" />
-          </span>
-          Class time — can&apos;t be moved
-        </span>
-        <span className="flex items-center gap-1.5 text-[11px] text-stone-500 dark:text-stone-400">
-          <span className="w-3 h-3 rounded-sm border border-stone-300 dark:border-stone-600 bg-stone-100 dark:bg-stone-800 shrink-0" />
-          Your own session — ask Buddy to move it
-        </span>
-      </div>
+      <p className="flex items-center gap-1.5 pt-3 border-t border-stone-100 dark:border-stone-800 text-[11px] text-stone-400 dark:text-stone-500">
+        <Lock className="w-3 h-3 shrink-0" />
+        Locked blocks are class time and your routine — ask Buddy to move anything else.
+      </p>
     </div>
   );
 }

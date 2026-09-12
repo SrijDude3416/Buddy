@@ -2,18 +2,17 @@
 // The main hub.
 //
 //   [ calendar ..................... ][ class colors ]
-//   [ goal swimlanes for the selected day ...........]
 //   [ coming up .....................................]
 //
-// The calendar shows when time goes; the swimlanes underneath show what it goes
-// toward on the same day, with rows as goals rather than days. The class colors
-// on the right are the key shared by both.
+// The calendar shows when time goes; the class panel beside it shows what it is
+// going toward. The day heading carries the two numbers that describe the day
+// (how much is on it, and how close to optimal the placement is) so there is one
+// place to look rather than a status line floating somewhere else on the page.
 // ---------------------------------------------------------------------------
 
 import { useMemo, useState } from 'react';
-import { ChevronLeft, ChevronRight, Target } from 'lucide-react';
+import { ChevronLeft, ChevronRight, ChevronRight as Arrow } from 'lucide-react';
 import { CalendarView } from '../components/plan/CalendarView.jsx';
-import { GoalSwimlanes } from '../components/plan/GoalSwimlanes.jsx';
 import { ClassLegend } from '../components/plan/ClassLegend.jsx';
 import { PillTabs } from '../components/ui/PillTabs.jsx';
 import { PlanSkeleton } from '../components/ui/Skeleton.jsx';
@@ -26,6 +25,17 @@ const RANGE_TABS = [
   { key: 'week', label: 'Week' },
   { key: 'day', label: 'Day' },
 ];
+
+/**
+ * CP-SAT reports a provable bound on the best possible objective even when it
+ * can't prove optimality, so the gap is a real number — but a gap is the wrong
+ * way round for a reader. Show its complement: how optimal this schedule is.
+ */
+function optimalityLabel(run) {
+  if (!run || run.gap === null || run.gap === undefined) return null;
+  const pct = Math.max(0, Math.min(100, (1 - run.gap) * 100));
+  return `${pct.toFixed(1)}% optimal schedule`;
+}
 
 export function PlanPage({ onOpenTask }) {
   const { plan, status, error, refresh, actionError, clearActionError } = usePlan();
@@ -46,6 +56,7 @@ export function PlanPage({ onOpenTask }) {
   const selectedDay = allDays.find((d) => d.offset === selectedOffset) ?? allDays[0];
   const selectedItems = itemsForDay(plan, selectedOffset);
   const selectedMinutes = selectedItems.reduce((sum, i) => sum + i.durationMin, 0);
+  const optimality = optimalityLabel(plan.run);
 
   function shiftWeek(delta) {
     const next = Math.min(7, Math.max(0, weekStart + delta));
@@ -63,6 +74,12 @@ export function PlanPage({ onOpenTask }) {
             {selectedItems.length
               ? `${selectedItems.length} thing${selectedItems.length === 1 ? '' : 's'} · ${Math.round(selectedMinutes / 60 * 10) / 10}h`
               : 'Nothing on the books'}
+            {optimality && (
+              <>
+                <span className="text-stone-300 dark:text-stone-700"> · </span>
+                <span className="font-semibold text-stone-700 dark:text-stone-200">{optimality}</span>
+              </>
+            )}
           </p>
         </div>
 
@@ -74,7 +91,7 @@ export function PlanPage({ onOpenTask }) {
                 onClick={() => shiftWeek(-7)}
                 disabled={weekStart === 0}
                 aria-label="Previous week"
-                className="p-1.5 rounded-md border border-stone-300 dark:border-stone-700 text-stone-500 dark:text-stone-400 disabled:opacity-40 hover:border-emerald-600"
+                className="p-1.5 rounded-md text-stone-400 dark:text-stone-500 disabled:opacity-30 hover:text-stone-700 dark:hover:text-stone-200 transition-colors"
               >
                 <ChevronLeft className="w-4 h-4" />
               </button>
@@ -83,7 +100,7 @@ export function PlanPage({ onOpenTask }) {
                 onClick={() => shiftWeek(7)}
                 disabled={weekStart >= 7}
                 aria-label="Next week"
-                className="p-1.5 rounded-md border border-stone-300 dark:border-stone-700 text-stone-500 dark:text-stone-400 disabled:opacity-40 hover:border-emerald-600"
+                className="p-1.5 rounded-md text-stone-400 dark:text-stone-500 disabled:opacity-30 hover:text-stone-700 dark:hover:text-stone-200 transition-colors"
               >
                 <ChevronRight className="w-4 h-4" />
               </button>
@@ -106,33 +123,31 @@ export function PlanPage({ onOpenTask }) {
         <ClassLegend plan={plan} selectedOffset={selectedOffset} dayLabel={selectedDay.label} />
       </div>
 
-      <div className="border-t border-stone-200 dark:border-stone-800 pt-5">
-        <div className="flex items-baseline justify-between gap-3 mb-3">
-          <p className="text-sm font-medium text-stone-700 dark:text-stone-200">Goals on {selectedDay.label.toLowerCase()}</p>
-          <p className="text-xs text-stone-400 dark:text-stone-500">Rows are goals, not days</p>
-        </div>
-        <GoalSwimlanes plan={plan} offset={selectedOffset} dayLabel={selectedDay.label} onOpenTask={onOpenTask} />
-      </div>
-
-      <div className="border-t border-stone-200 dark:border-stone-800 pt-5">
-        <div className="flex items-center gap-2 mb-3">
-          <Target className="w-4 h-4 text-stone-500 dark:text-stone-400" />
-          <h3 className="font-serif text-lg text-stone-900 dark:text-stone-100">Coming up</h3>
-        </div>
-        <div className="grid gap-3 sm:grid-cols-2">
+      <div>
+        <h3 className="text-sm font-medium text-stone-500 dark:text-stone-400 mb-3">Coming up</h3>
+        <div className="grid gap-2 sm:grid-cols-2">
           {[...plan.goals]
             .sort((a, b) => (a.daysAway ?? 999) - (b.daysAway ?? 999))
             .map((goal) => (
-              <div
+              <button
                 key={goal.id}
-                className="bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 rounded-xl px-4 py-3"
+                type="button"
+                disabled={!goal.nextTaskId}
+                onClick={() => goal.nextTaskId && onOpenTask?.(goal.nextTaskId)}
+                title={goal.nextTaskId ? `Open ${goal.deadlineLabel}` : undefined}
+                className="group text-left bg-white dark:bg-stone-900 border border-stone-200/70 dark:border-stone-800 rounded-xl px-4 py-3 enabled:hover:border-stone-300 dark:enabled:hover:border-stone-700 disabled:cursor-default transition-colors"
               >
                 <div className="flex items-center justify-between gap-3">
                   <p className="text-sm font-medium text-stone-900 dark:text-stone-100 truncate">{goal.deadlineLabel}</p>
-                  <span className="text-xs text-stone-500 dark:text-stone-400 shrink-0">{goal.dueLabel ?? ''}</span>
+                  <span className="flex items-center gap-1 shrink-0 text-xs text-stone-500 dark:text-stone-400">
+                    {goal.dueLabel ?? ''}
+                    {goal.nextTaskId && (
+                      <Arrow className="w-3.5 h-3.5 opacity-0 group-hover:opacity-60 transition-opacity" aria-hidden="true" />
+                    )}
+                  </span>
                 </div>
                 <p className="text-xs text-stone-500 dark:text-stone-400 truncate mt-0.5">{goal.title}</p>
-              </div>
+              </button>
             ))}
           {plan.goals.length === 0 && (
             <p className="text-sm text-stone-400 dark:text-stone-500">Nothing coming up yet.</p>

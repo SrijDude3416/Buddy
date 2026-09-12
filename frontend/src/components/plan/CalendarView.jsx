@@ -45,19 +45,22 @@ function Block({ entry, laneCount, startHour, colorMap, onOpenTask }) {
   const tight = height < 38;
 
   if (isFixed) {
+    // Class time carries its class's own color, one shade deeper than the
+    // sessions that study for it. The lock is what says "immovable" — not a
+    // black block that reads as a different kind of thing entirely.
     return (
       <div
         style={style}
         title={`${item.action} · ${item.timeLabel} · ${item.durationMin} min · can't be moved`}
-        className="absolute rounded-md overflow-hidden bg-stone-800 dark:bg-stone-800 border border-stone-700 flex"
+        className={`absolute rounded-lg overflow-hidden border flex ${color.strongTint} ${color.strongBorder}`}
       >
         <span className={`w-1 shrink-0 ${color.rail}`} />
         <span className="px-1.5 py-1 min-w-0 flex-1">
           <span className="flex items-center gap-1">
-            <Lock className="w-2.5 h-2.5 text-stone-400 shrink-0" />
-            <span className="text-[11px] font-medium text-stone-100 truncate">{item.action}</span>
+            <Lock className={`w-2.5 h-2.5 shrink-0 opacity-50 ${color.strongSubtext}`} />
+            <span className={`text-[11px] font-medium truncate ${color.strongText}`}>{item.action}</span>
           </span>
-          {!tight && <span className="block text-[10px] text-stone-400 truncate">{item.timeLabel}</span>}
+          {!tight && <span className={`block text-[10px] truncate ${color.strongSubtext}`}>{item.timeLabel}</span>}
         </span>
       </div>
     );
@@ -72,7 +75,7 @@ function Block({ entry, laneCount, startHour, colorMap, onOpenTask }) {
       data-start={item.start}
       data-end={item.end}
       title={`${item.action} · ${item.courseTitle} · ${item.timeLabel} · ${item.durationMin} min`}
-      className={`absolute rounded-md overflow-hidden border text-left flex hover:ring-2 hover:ring-emerald-500/60 transition-shadow ${color.tint} ${color.border}`}
+      className={`absolute rounded-lg overflow-hidden border text-left flex hover:ring-2 hover:ring-emerald-500/40 transition-shadow ${color.tint} ${color.border}`}
     >
       <span className={`w-1 shrink-0 ${color.rail}`} />
       <span className="px-1.5 py-1 min-w-0 flex-1">
@@ -105,11 +108,11 @@ function DayColumn({ plan, offset, startHour, endHour, colorMap, onOpenTask, isT
   const showNow = isToday && now >= startHour * 60 && now <= endHour * 60;
 
   return (
-    <div className="relative flex-1 min-w-0 border-l border-stone-200 dark:border-stone-800" style={{ height: hours * PX_PER_HOUR }}>
+    <div className="relative flex-1 min-w-0 border-l border-stone-100 dark:border-stone-900" style={{ height: hours * PX_PER_HOUR }}>
       {Array.from({ length: hours }, (_, i) => (
         <div
           key={i}
-          className="absolute left-0 right-0 border-t border-stone-100 dark:border-stone-900"
+          className="absolute left-0 right-0 border-t border-stone-100/80 dark:border-stone-900"
           style={{ top: i * PX_PER_HOUR }}
         />
       ))}
@@ -159,8 +162,8 @@ export function CalendarView({ plan, days, selectedOffset, onSelectDay, onOpenTa
   }, [plan.flexibleSessions, offsets.join(','), startHour]);
 
   return (
-    <div className="self-start bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 rounded-xl overflow-hidden">
-      <div className="flex border-b border-stone-200 dark:border-stone-800">
+    <div className="self-start bg-white dark:bg-stone-900 border border-stone-200/70 dark:border-stone-800 rounded-2xl overflow-hidden">
+      <div className="flex border-b border-stone-100 dark:border-stone-800">
         <div className="shrink-0" style={{ width: GUTTER }} />
         {days.map((day) => {
           const isSelected = day.offset === selectedOffset;
@@ -170,8 +173,8 @@ export function CalendarView({ plan, days, selectedOffset, onSelectDay, onOpenTa
               type="button"
               onClick={() => onSelectDay(day.offset)}
               aria-pressed={isSelected}
-              className={`flex-1 min-w-0 px-1 py-2 border-l border-stone-200 dark:border-stone-800 transition-colors ${
-                isSelected ? 'bg-emerald-50 dark:bg-emerald-950' : 'hover:bg-stone-50 dark:hover:bg-stone-800'
+              className={`flex-1 min-w-0 px-1 py-2 border-l border-stone-100 dark:border-stone-900 transition-colors ${
+                isSelected ? 'bg-emerald-50/70 dark:bg-emerald-950/60' : 'hover:bg-stone-50 dark:hover:bg-stone-800/60'
               }`}
             >
               <span

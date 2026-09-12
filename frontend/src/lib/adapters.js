@@ -78,19 +78,22 @@ export function toPlanView(payload) {
     const courseTasks = tasks.filter((t) => t.courseId === course._id);
     const courseSessions = courseTasks.flatMap((t) => t.sessions);
     const done = courseSessions.filter((s) => s.completed).length;
-    const nextDue = courseTasks
-      .map((t) => t.dueAt)
-      .filter(Boolean)
-      .sort((a, b) => new Date(a) - new Date(b))[0];
+    // The label, the countdown and the click target all have to describe the
+    // *same* task — reading them off the next deadline rather than off whatever
+    // task happened to sort first is what keeps "Coming up" honest when tapped.
+    const nextTask = courseTasks
+      .filter((t) => t.dueAt)
+      .sort((a, b) => new Date(a.dueAt) - new Date(b.dueAt))[0] ?? courseTasks[0] ?? null;
 
     return {
       id: course._id,
       title: course.name,
       code: course.code,
       progress: courseSessions.length ? Math.round((done / courseSessions.length) * 100) : 0,
-      deadlineLabel: courseTasks[0]?.title ?? 'Coursework',
-      daysAway: nextDue ? dayOffset(nextDue, referenceDate) : null,
-      dueLabel: nextDue ? relativeDeadline(nextDue, referenceDate) : null,
+      deadlineLabel: nextTask?.title ?? 'Coursework',
+      nextTaskId: nextTask?.id ?? null,
+      daysAway: nextTask?.dueAt ? dayOffset(nextTask.dueAt, referenceDate) : null,
+      dueLabel: nextTask?.dueAt ? relativeDeadline(nextTask.dueAt, referenceDate) : null,
     };
   });
 
