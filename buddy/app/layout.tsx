@@ -3,7 +3,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "Buddy | Schedule optimizer",
-  description: "Gemini-powered schedule optimization workflow",
+  description: "Turn student feedback into structured schedule changes",
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {

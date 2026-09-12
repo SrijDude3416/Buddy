@@ -1,15 +1,4 @@
 "use client";
-import { FormEvent, useState } from "react";
-import type { OptimizerRun, ScheduleInterpretation, SchedulePlan } from "@/lib/types";
-async function json<T>(url: string, init?: RequestInit) { const response = await fetch(url, init); const data = await response.json() as T & { error?: string }; if (!response.ok) throw new Error(data.error ?? "Request failed"); return data; }
-export default function Home() {
-  const [input, setInput] = useState(""); const [reply, setReply] = useState<ScheduleInterpretation>(); const [run, setRun] = useState<OptimizerRun>(); const [plan, setPlan] = useState<SchedulePlan>(); const [debug, setDebug] = useState<Record<string, unknown>>({}); const [error, setError] = useState<string>(); const [loading, setLoading] = useState(false);
-  async function submit(event: FormEvent<HTMLFormElement>) { event.preventDefault(); setLoading(true); setError(undefined); setPlan(undefined); try {
-    const interpreted = await json<ScheduleInterpretation>("/api/schedule/interpret", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ input }) }); setReply(interpreted); setDebug({ input, interpretation: interpreted }); if (!interpreted.operations.length) return;
-    const saved = await json<{ runId?: string; warning?: string }>("/api/preferences", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ operations: interpreted.operations }) }); setDebug((value) => ({ ...value, preferenceWriteResponse: saved })); if (saved.warning) setError(saved.warning);
-    const started = saved.runId ? { id: saved.runId, status: "queued" } : await json<OptimizerRun>("/api/optimizer-runs", { method: "POST" }); setRun(started); let current = started;
-    while (!["completed", "failed"].includes(current.status)) { await new Promise((resolve) => setTimeout(resolve, 1000)); current = await json<OptimizerRun>(`/api/optimizer-runs/${current.id}`); setRun(current); setDebug((value) => ({ ...value, optimizerRun: current })); }
-    if (current.status === "completed") { const nextPlan = await json<SchedulePlan>("/api/plan"); setPlan(nextPlan); setDebug((value) => ({ ...value, plan: nextPlan })); } else setError("The optimizer could not produce a plan.");
-  } catch (cause) { setError(cause instanceof Error ? cause.message : "Something went wrong."); } finally { setLoading(false); } }
-  return <main><h1>Buddy schedule optimizer</h1><p>Describe a scheduling preference.</p><form onSubmit={submit}><textarea value={input} onChange={(event) => setInput(event.target.value)} placeholder="Keep Friday nights free." required /><button disabled={loading}>{loading ? "Updating…" : "Update schedule"}</button></form>{error && <p role="alert">{error}</p>}{reply && <section><h2>Buddy</h2><p>{reply.chatResponse}</p><h3>Preference operations</h3><pre>{JSON.stringify(reply.operations, null, 2)}</pre></section>}{run && <section><h2>Optimizer run</h2><pre>{JSON.stringify(run, null, 2)}</pre></section>}{plan && <section><h2>Plan</h2><pre>{JSON.stringify(plan, null, 2)}</pre></section>}{reply && <section><h2>Debug: complete pipeline payloads</h2><pre>{JSON.stringify(debug, null, 2)}</pre></section>}</main>;
-}
+import dynamic from "next/dynamic";
+const DemoApp = dynamic(() => import("../../frontend/src/DemoApp.jsx"), { ssr: false });
+export default function Home() { return <DemoApp />; }

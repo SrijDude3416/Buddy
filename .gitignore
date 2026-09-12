@@ -1,18 +1,43 @@
-node_modules
-dist
-.env
-.env.local
-
-# Next.js build output and Vercel local state
-.next
-.vercel
-
-# graphify generated artifacts
-graphify-out
-
-.DS_Store
-__pycache__/
-*.pyc
-.venv/
-backend/optimizer/output_*.json
+# Dependencies
 node_modules/
+.venv*/
+venv/
+
+# Local secrets and environment configuration
+.env
+.env.*
+!.env.example
+!.env.sample
+!.env.template
+.claude/settings.local.json
+
+# Frontend builds and deployment state
+.next/
+dist/
+out/
+.vercel/
+.turbo/
+*.tsbuildinfo
+
+# Python caches and generated optimizer output
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+backend/optimizer/output_*.json
+
+# Test reports and coverage
+test-results/
+playwright-report/
+coverage/
+.coverage
+htmlcov/
+
+# Logs and generated analysis
+*.log
+graphify-out/
+
+# Operating system files
+.DS_Store
+Thumbs.db

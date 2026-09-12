@@ -1,20 +1,23 @@
-import OpenAI from "openai";
-import type { PreferenceOperation, ScheduleInterpretation } from "./types";
+import OpenAI from 'openai';
+import { PreferenceCallsSchema, preferenceTools } from './preference-contract';
+import type { Plan } from './plan';
 
-const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-const strength = ["gentle", "moderate", "firm"];
-const tools: OpenAI.Responses.Tool[] = [
-  { type: "function", name: "set_preferred_work_hours", description: "Set the singleton daily preferred work window.", parameters: { type: "object", properties: { start_time: { type: "string" }, end_time: { type: "string" }, strength: { type: "string", enum: strength } }, required: ["start_time", "end_time"] }, strict: false },
-  { type: "function", name: "set_daily_workload_limit", description: "Set a daily work cap; omit days for every day.", parameters: { type: "object", properties: { minutes_per_day: { type: "integer", minimum: 30, maximum: 900 }, days: { type: "array", items: { type: "string", enum: days } }, strength: { type: "string", enum: strength } }, required: ["minutes_per_day"] }, strict: false },
-  { type: "function", name: "protect_time_block", description: "Hard-protect a recurring block from schoolwork.", parameters: { type: "object", properties: { days: { type: "array", items: { type: "string", enum: days }, minItems: 1 }, start_time: { type: "string" }, end_time: { type: "string" } }, required: ["days", "start_time", "end_time"] }, strict: false },
-  { type: "function", name: "set_break_habits", description: "Set the singleton soft break habit.", parameters: { type: "object", properties: { break_minutes: { type: "integer", minimum: 15, maximum: 120 }, strength: { type: "string", enum: strength } } }, strict: false },
-  { type: "function", name: "remove_preference", description: "Remove one active preference.", parameters: { type: "object", properties: { preference_type: { type: "string", enum: ["preferred_work_hours", "daily_workload_limit", "protected_time_block", "break_habits"] }, match: { type: "object", additionalProperties: true } }, required: ["preference_type"] }, strict: false },
-  { type: "function", name: "list_current_preferences", description: "List active preferences.", parameters: { type: "object", properties: {} }, strict: false },
-];
-
-export async function interpretScheduleInput(input: string): Promise<ScheduleInterpretation> {
-  if (!process.env.OPENAI_API_KEY) throw new Error("OPENAI_API_KEY is not configured.");
-  const response = await new OpenAI({ apiKey: process.env.OPENAI_API_KEY }).responses.create({ model: process.env.OPENAI_MODEL ?? "gpt-5-mini", input, tools, tool_choice: "auto", store: false });
-  const operations = response.output.filter((item): item is OpenAI.Responses.ResponseFunctionToolCall => item.type === "function_call").map((item) => ({ name: item.name, arguments: JSON.parse(item.arguments) })) as PreferenceOperation[];
-  return { chatResponse: response.output_text || (operations.length ? "I’ve prepared those preference updates." : "I can’t express that request with the available preferences."), operations, debug: { openaiResponse: response } };
+/** The only chat interpreter. OpenAI selects existing preference API calls;
+ * it is never offered event IDs, event mutation tools, or solver weights. */
+export async function interpretScheduleInput(input: string, plan: Plan, context?: { task_id?: string }, history: { role: 'user' | 'assistant'; text: string }[] = [], signal?: AbortSignal) {
+  if (!process.env.OPENAI_API_KEY) throw new Error('OpenAI is not configured.');
+  const response = await new OpenAI({ apiKey: process.env.OPENAI_API_KEY, timeout: 45000, maxRetries: 0 }).responses.create({
+    model: process.env.OPENAI_MODEL ?? 'gpt-5-mini',
+    instructions: `You are Buddy, a student scheduling assistant. Translate scheduling feedback into calls to the provided preference API tools. The Python CP-SAT optimizer decides every event's placement after those preferences are applied. Never choose event times or edit calendar events. Use only the six provided tools and their documented arguments. Use bounded strength values, never raw solver weights. Include a short conversational explanation of the intended preference change; do not claim it is already applied. The current preferences below are authoritative; history is conversational context and can include updates later undone. For ambiguous requests ask a question and make no tool calls. If a request cannot be expressed by the tools (such as per-task quiz/homework priorities or exact study block lengths), explain the limitation and make no calls; do not substitute an unrelated preference. For list_current_preferences, summarize the supplied current preferences. Hard protected blocks affect flexible work, never move lectures. Keep responses brief and use at most 6 calls.`,
+    input: [
+      { role: 'user', content: JSON.stringify({ current_preferences: plan.preferences, courses: plan.courses, context }) },
+      ...history.map(m => ({ role: m.role, content: m.text })),
+      { role: 'user', content: input },
+    ],
+    tools: preferenceTools, tool_choice: 'auto', store: false,
+  }, { signal });
+  if (response.status !== 'completed') throw new Error('OpenAI returned an incomplete response.');
+  const preferenceCalls = PreferenceCallsSchema.parse(response.output.filter(item => item.type === 'function_call').map(item => ({ name: item.name, arguments: JSON.parse(item.arguments) })));
+  const message = response.output_text || (preferenceCalls.length ? 'I translated your feedback into scheduling preferences.' : 'Which scheduling preference would you like to change?');
+  return { message, preferenceCalls };
 }

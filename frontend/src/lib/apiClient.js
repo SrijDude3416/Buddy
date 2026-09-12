@@ -10,6 +10,7 @@
 // VITE_API_BASE_URL. No component, hook or service file changes.
 // ---------------------------------------------------------------------------
 
+import { readChatStream } from './chatStream.js';
 import { config, isMock } from './config.js';
 import { resolveEndpoint } from './endpoints.js';
 import { ApiError, AbortedError, isAborted } from './errors.js';
@@ -48,8 +49,10 @@ function sleep(ms, signal) {
 function withTimeout(signal, timeoutMs) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
-  signal?.addEventListener('abort', () => controller.abort(), { once: true });
-  return { signal: controller.signal, cleanup: () => clearTimeout(timer) };
+  const onAbort = () => controller.abort();
+  signal?.addEventListener('abort', onAbort, { once: true });
+  if (signal?.aborted) controller.abort();
+  return { signal: controller.signal, cleanup: () => { clearTimeout(timer); signal?.removeEventListener('abort', onAbort); } };
 }
 
 async function requestMock({ name, method, path }, { params, body, signal }) {
@@ -76,55 +79,36 @@ async function requestMock({ name, method, path }, { params, body, signal }) {
   return handler({ params, body, signal });
 }
 
-async function requestLive({ name, method, path }, { body, signal }) {
+async function requestLive({ method, path }, { body, signal, onProgress }) {
   const url = `${config.apiBaseUrl}${path}`;
   const { signal: timedSignal, cleanup } = withTimeout(signal, config.apiTimeoutMs);
-
-  let res;
   try {
-    res = await fetch(url, {
-      method,
-      signal: timedSignal,
-      credentials: 'include',
+    const res = await fetch(url, {
+      method, signal: timedSignal, credentials: 'include',
       headers: {
-        Accept: 'application/json',
-        ...(body ? { 'Content-Type': 'application/json' } : {}),
-        ...authHeaders(),
+        Accept: onProgress ? 'application/x-ndjson' : 'application/json',
+        ...(body ? { 'Content-Type': 'application/json' } : {}), ...authHeaders(),
       },
       body: body ? JSON.stringify(body) : undefined,
     });
-  } catch (err) {
-    cleanup();
-    if (isAborted(err)) throw new AbortedError(path);
-    // Network-level failure: no status, retryable.
-    throw new ApiError(err.message || 'Network request failed', {
-      status: 0,
-      code: 'network',
-      endpoint: path,
-    });
-  }
-  cleanup();
-
-  const text = await res.text();
-  let parsed = null;
-  if (text) {
-    try {
-      parsed = JSON.parse(text);
-    } catch {
-      parsed = { raw: text };
+    if (res.ok && res.headers.get('content-type')?.includes('application/x-ndjson')) {
+      return await readChatStream(res, onProgress);
     }
-  }
-
-  if (!res.ok) {
-    throw new ApiError(parsed?.message || `${method} ${path} failed (${res.status})`, {
-      status: res.status,
-      code: parsed?.code || 'http_error',
-      endpoint: path,
-      body: parsed,
+    const text = await res.text();
+    let parsed = null;
+    try { parsed = text ? JSON.parse(text) : null; } catch { parsed = { raw: text }; }
+    if (!res.ok) throw new ApiError(parsed?.message || `${method} ${path} failed (${res.status})`, {
+      status: res.status, code: parsed?.code || 'http_error', endpoint: path, body: parsed,
     });
+    return parsed;
+  } catch (err) {
+    if (signal?.aborted) throw new AbortedError(path);
+    if (timedSignal.aborted) throw new ApiError('Buddy took too long to respond. Your calendar is unchanged. Please retry.', { code: 'timeout', endpoint: path });
+    if (err instanceof ApiError) throw err;
+    throw new ApiError(err.message || 'Network request failed', { code: 'network', endpoint: path });
+  } finally {
+    cleanup(); // Includes reading the stream, not only receiving the headers.
   }
-
-  return parsed;
 }
 
 /**
@@ -134,11 +118,11 @@ async function requestLive({ name, method, path }, { body, signal }) {
  * @param {object} [opts.body]   JSON body
  * @param {AbortSignal} [opts.signal]
  */
-export async function request(name, { params = {}, body, signal } = {}) {
+export async function request(name, { params = {}, body, signal, onProgress } = {}) {
   const endpoint = resolveEndpoint(name, params);
   return isMock()
     ? requestMock(endpoint, { params, body, signal })
-    : requestLive(endpoint, { body, signal });
+    : requestLive(endpoint, { body, signal, onProgress });
 }
 
 export { ApiError, AbortedError, isAborted };

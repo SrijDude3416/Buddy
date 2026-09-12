@@ -20,6 +20,7 @@ export const authApi = {
 };
 
 export const preferencesApi = {
+  confirm: (answers) => request('createPreferences', { body: { answers } }),
   create: (entries, { replaceSource, signal } = {}) =>
     request('createPreferences', { body: { entries, replace_source: replaceSource }, signal }),
   list: ({ signal } = {}) => request('listPreferences', { signal }),
@@ -54,6 +55,6 @@ export const coursesApi = {
 
 export const chatApi = {
   list: ({ signal } = {}) => request('listChatMessages', { signal }),
-  send: (text, context = null, { signal } = {}) =>
-    request('sendChatMessage', { body: { text, context }, signal }),
+  send: (text, context = null, { signal, plan, history, onProgress } = {}) =>
+    request('sendChatMessage', { body: { text, context, ...(plan ? { plan, history } : {}) }, signal, onProgress: config.apiMode === 'demo' ? onProgress : undefined }),
 };

@@ -11,6 +11,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { planApi, sessionsApi } from '../lib/api/index.js';
 import { toPlanView } from '../lib/adapters.js';
+import { config } from '../lib/config.js';
 import { isAborted } from '../lib/errors.js';
 
 const PlanContext = createContext(null);
@@ -71,6 +72,7 @@ export function PlanProvider({ children, initialPayload = null }) {
       }));
       setActionError(null);
 
+      if (config.apiMode === 'demo') return;
       try {
         const res = await sessionsApi.patch(sessionId, { completed: next });
         mergeSession(res.session);

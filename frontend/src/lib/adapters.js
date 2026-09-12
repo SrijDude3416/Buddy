@@ -10,7 +10,7 @@
 import { dayLabel, timeLabel, minutesIntoDay, dayOffset, relativeDeadline } from './time.js';
 import { buildColorMap } from './courseColors.js';
 
-function toSessionView(session, course) {
+function toSessionView(session, course, referenceDate) {
   return {
     id: session._id,
     taskId: session.task_id,
@@ -24,8 +24,8 @@ function toSessionView(session, course) {
     completed: session.completed,
     start: session.start,
     end: session.end,
-    dayLabel: dayLabel(session.start),
-    dayOffset: dayOffset(session.start),
+    dayLabel: dayLabel(session.start, referenceDate),
+    dayOffset: dayOffset(session.start, referenceDate),
     timeLabel: timeLabel(session.start),
     minutesIntoDay: minutesIntoDay(session.start),
   };
@@ -35,12 +35,13 @@ function toSessionView(session, course) {
  * @param {{courses: array, tasks: array, sessions: array, run: object|null}} payload
  */
 export function toPlanView(payload) {
+  const referenceDate = payload?.windowStart ? new Date(payload.windowStart) : new Date();
   const courses = payload?.courses ?? [];
   const rawTasks = payload?.tasks ?? [];
   const rawSessions = payload?.sessions ?? [];
   const courseById = new Map(courses.map((c) => [c._id, c]));
 
-  const sessionViews = rawSessions.map((s) => toSessionView(s, courseById.get(s.course_id)));
+  const sessionViews = rawSessions.map((s) => toSessionView(s, courseById.get(s.course_id), referenceDate));
 
   // Fixed blocks: no task_id, immovable, same timeline as everything else.
   const fixedBlocks = sessionViews
@@ -65,7 +66,7 @@ export function toPlanView(payload) {
       title: t.display_title || t.source_assignment,
       status: t.status,
       dueAt: t.due_at,
-      dueLabel: relativeDeadline(t.due_at),
+      dueLabel: relativeDeadline(t.due_at, referenceDate),
       priorityWeight: t.priority_weight,
       estDurationMin: t.est_duration_min,
       sessions: sessions.map((s, i) => ({ ...s, order: i + 1 })),
@@ -88,8 +89,8 @@ export function toPlanView(payload) {
       code: course.code,
       progress: courseSessions.length ? Math.round((done / courseSessions.length) * 100) : 0,
       deadlineLabel: courseTasks[0]?.title ?? 'Coursework',
-      daysAway: nextDue ? dayOffset(nextDue) : null,
-      dueLabel: nextDue ? relativeDeadline(nextDue) : null,
+      daysAway: nextDue ? dayOffset(nextDue, referenceDate) : null,
+      dueLabel: nextDue ? relativeDeadline(nextDue, referenceDate) : null,
     };
   });
 
@@ -108,6 +109,7 @@ export function toPlanView(payload) {
     flexibleSessions,
     colorMap,
     run: payload?.run ?? null,
+    windowStart: payload?.windowStart,
     isEmpty: tasks.length === 0 && fixedBlocks.length === 0,
   };
 }

@@ -1,7 +1,40 @@
-import type { OptimizerRun, PreferenceOperation, PreferenceWriteResult, SchedulePlan } from "./types";
-function baseUrl() { if (!process.env.FASTAPI_BASE_URL) throw new Error("FASTAPI_BASE_URL is not configured."); return process.env.FASTAPI_BASE_URL.replace(/\/$/, ""); }
-async function api<T>(path: string, init?: RequestInit) { const response = await fetch(`${baseUrl()}${path}`, { ...init, cache: "no-store", headers: { "Content-Type": "application/json", ...init?.headers } }); if (!response.ok) throw new Error(`FastAPI ${init?.method ?? "GET"} ${path} failed (${response.status}).`); return response.json() as Promise<T>; }
-export const applyPreferenceOperations = (operations: PreferenceOperation[]) => api<PreferenceWriteResult>(process.env.FASTAPI_PREFERENCES_PATH ?? "/preferences/operations", { method: "POST", body: JSON.stringify({ operations }) });
-export const createOptimizerRun = () => api<OptimizerRun>("/optimizer/runs", { method: "POST" });
-export const getOptimizerRun = (id: string) => api<OptimizerRun>(`/optimizer/runs/${encodeURIComponent(id)}`);
-export const getPlan = () => api<SchedulePlan>("/plan");
+import { z } from 'zod';
+import { PlanSchema } from './plan';
+import { SavedPreferencesSchema, type PreferenceCall } from './preference-contract';
+import type { OptimizerRun } from './types';
+
+export class OptimizerError extends Error {
+  constructor(message: string, public status = 502) { super(message); }
+}
+const BatchResult = z.object({
+  plan: PlanSchema, preferences: SavedPreferencesSchema,
+  preference_calls: z.array(z.object({ name: z.string(), arguments: z.record(z.unknown()), endpoint: z.string(), method: z.string(), result: z.unknown() })),
+});
+export async function optimizerApi(path: string, init?: RequestInit) {
+  const base = (process.env.FASTAPI_BASE_URL ?? 'http://127.0.0.1:8000').replace(/\/$/, '');
+  let response;
+  try {
+    response = await fetch(`${base}${path}`, { ...init, cache: 'no-store', signal: init?.signal ? AbortSignal.any([init.signal, AbortSignal.timeout(70000)]) : AbortSignal.timeout(70000), headers: { 'Content-Type': 'application/json', ...init?.headers } });
+  } catch (error) {
+    if (init?.signal?.aborted) throw error;
+    throw new OptimizerError('Could not reach the schedule optimizer. Your preferences and calendar are unchanged.');
+  }
+  const body = await response.json();
+  if (!response.ok) {
+    const detail = body.detail;
+    throw new OptimizerError(typeof detail === 'string' ? detail : detail?.message ?? 'The preference update or optimizer solve failed. Your calendar is unchanged.', response.status);
+  }
+  return body;
+}
+export const getDefaultPreferences = async (signal?: AbortSignal) => BatchResult.parse(await optimizerApi('/preferences/defaults', { signal }));
+export const applyPreferenceCalls = async (preferences: PreferenceCall[], operations: PreferenceCall[], course_ids: string[], signal?: AbortSignal) => BatchResult.parse(await optimizerApi('/preferences/operations', {
+  method: 'POST', body: JSON.stringify({ preferences, operations, course_ids }), signal,
+}));
+
+// Compatibility for the original optional run-polling routes.
+type BridgeRun = { run_id: string; status: string; stage?: string; progress?: number };
+function normalize(run: BridgeRun): OptimizerRun {
+  return { id: run.run_id, status: run.status === 'solved' ? 'completed' : ['infeasible', 'cancelled'].includes(run.status) ? 'failed' : run.status, stage: run.stage, progress: run.progress };
+}
+export const createOptimizerRun = async () => normalize(await optimizerApi('/api/optimizer/runs', { method: 'POST' }));
+export const getOptimizerRun = async (id: string) => normalize(await optimizerApi(`/api/optimizer/runs/${encodeURIComponent(id)}`));

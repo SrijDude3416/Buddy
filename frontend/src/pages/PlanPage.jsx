@@ -33,7 +33,7 @@ export function PlanPage({ onOpenTask }) {
   const [selectedOffset, setSelectedOffset] = useState(0);
   const [weekStart, setWeekStart] = useState(0);
 
-  const allDays = useMemo(() => horizonDays(14), []);
+  const allDays = useMemo(() => horizonDays(14, plan.windowStart ? new Date(plan.windowStart) : new Date()).map(d => plan.windowStart ? { ...d, label: d.date.toLocaleDateString('en-US', { weekday: 'short' }) } : d), [plan.windowStart]);
   const weekDays = useMemo(
     () => allDays.slice(weekStart, weekStart + 7),
     [allDays, weekStart],

@@ -1,4 +1,3 @@
-// Compatibility alias for the independently developed AI wrapper endpoint.
 export { handleChat as POST } from '@/lib/chat-handler';
 export const runtime = 'nodejs';
 export const maxDuration = 180;

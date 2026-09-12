@@ -15,7 +15,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 Weekday = Literal["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 Strength = Literal["gentle", "moderate", "firm"]
@@ -24,7 +24,7 @@ Strength = Literal["gentle", "moderate", "firm"]
 # for midnight (PREFERENCE_API.md §5: "use '24:00' for midnight, not
 # '00:00'") -- everywhere else, "24:00" is not a valid time-of-day.
 _HHMM = r"^([01][0-9]|2[0-3]):[0-5][0-9]$"
-_HHMM_OR_MIDNIGHT = r"^([01][0-9]|2[0-3]):[0-5][0-9]|24:00$"
+_HHMM_OR_MIDNIGHT = r"^(([01][0-9]|2[0-3]):[0-5][0-9]|24:00)$"
 
 
 def _time_field(pattern: str = _HHMM, **kw) -> Field:
@@ -122,7 +122,11 @@ class SolveResponse(BaseModel):
 # --------------------------------------------------------------------------
 
 
-class SetPreferredWorkHoursIn(BaseModel):
+class ToolInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+
+class SetPreferredWorkHoursIn(ToolInput):
     start_time: str = _time_field()
     end_time: str = _time_field()
     strength: Strength = "moderate"
@@ -134,13 +138,13 @@ class SetPreferredWorkHoursIn(BaseModel):
         return self
 
 
-class SetDailyWorkloadLimitIn(BaseModel):
+class SetDailyWorkloadLimitIn(ToolInput):
     minutes_per_day: int = Field(ge=30, le=900)
     days: list[Weekday] | None = Field(default=None, min_length=1)
     strength: Strength = "moderate"
 
 
-class ProtectTimeBlockIn(BaseModel):
+class ProtectTimeBlockIn(ToolInput):
     days: list[Weekday] = Field(min_length=1)
     start_time: str = _time_field()
     end_time: str = _time_field(_HHMM_OR_MIDNIGHT)
@@ -156,12 +160,12 @@ class ProtectTimeBlockIn(BaseModel):
         return v
 
 
-class SetBreakHabitsIn(BaseModel):
+class SetBreakHabitsIn(ToolInput):
     break_minutes: int = Field(default=45, ge=15, le=120)
     strength: Strength = "moderate"
 
 
-class RemovePreferenceIn(BaseModel):
+class RemovePreferenceIn(ToolInput):
     preference_type: Literal[
         "preferred_work_hours", "daily_workload_limit", "protected_time_block", "break_habits"
     ]

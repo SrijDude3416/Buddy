@@ -20,7 +20,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends
 from fastapi.responses import JSONResponse
 
 import data_loader
@@ -209,11 +209,11 @@ def get_plan() -> SolveResponse:
 # --------------------------------------------------------------------------
 
 
-def _tool_response(internal_type: str, value: dict, weight: float | None, action: str, resolve: bool) -> ToolCallResponse:
+def _tool_response(internal_type: str, value: dict, weight: float | None, action: str, resolve: bool, store: PreferenceStore) -> ToolCallResponse:
     summary = None
     if resolve:
         global _LAST_SOLVE
-        _LAST_SOLVE = _run_solve_for_student(STORE.to_preferences())
+        _LAST_SOLVE = _run_solve_for_student(store.to_preferences())
         summary = SolveSummary(
             status=_LAST_SOLVE.status,
             objective_value=_LAST_SOLVE.objective_value,
@@ -229,43 +229,47 @@ def _tool_response(internal_type: str, value: dict, weight: float | None, action
     )
 
 
+def get_preference_store() -> PreferenceStore:
+    return STORE
+
+
 @app.post("/tools/set_preferred_work_hours", response_model=ToolCallResponse)
-def set_preferred_work_hours(body: SetPreferredWorkHoursIn, resolve: bool = True) -> ToolCallResponse:
+def set_preferred_work_hours(body: SetPreferredWorkHoursIn, resolve: bool = True, store: PreferenceStore = Depends(get_preference_store)) -> ToolCallResponse:
     value = {"start": body.start_time, "end": body.end_time}
     weight = WEIGHT_MAP["preferred_hours"][body.strength]
-    action = STORE.set("preferred_hours", value, weight, source="chat")
-    return _tool_response("preferred_hours", value, weight, action, resolve)
+    action = store.set("preferred_hours", value, weight, source="chat")
+    return _tool_response("preferred_hours", value, weight, action, resolve, store)
 
 
 @app.post("/tools/set_daily_workload_limit", response_model=ToolCallResponse)
-def set_daily_workload_limit(body: SetDailyWorkloadLimitIn, resolve: bool = True) -> ToolCallResponse:
+def set_daily_workload_limit(body: SetDailyWorkloadLimitIn, resolve: bool = True, store: PreferenceStore = Depends(get_preference_store)) -> ToolCallResponse:
     value: dict = {"minutes": body.minutes_per_day}
     if body.days:
         value["days"] = body.days
     weight = WEIGHT_MAP["daily_load_cap"][body.strength]
-    action = STORE.set("daily_load_cap", value, weight, source="chat")
-    return _tool_response("daily_load_cap", value, weight, action, resolve)
+    action = store.set("daily_load_cap", value, weight, source="chat")
+    return _tool_response("daily_load_cap", value, weight, action, resolve, store)
 
 
 @app.post("/tools/protect_time_block", response_model=ToolCallResponse)
-def protect_time_block(body: ProtectTimeBlockIn, resolve: bool = True) -> ToolCallResponse:
+def protect_time_block(body: ProtectTimeBlockIn, resolve: bool = True, store: PreferenceStore = Depends(get_preference_store)) -> ToolCallResponse:
     value = {"days": body.days, "start": body.start_time, "end": body.end_time}
-    action = STORE.set("avoid_block", value, weight=0, source="chat")  # hard constraint; weight unused
-    return _tool_response("avoid_block", value, None, action, resolve)
+    action = store.set("avoid_block", value, weight=0, source="chat")  # hard constraint; weight unused
+    return _tool_response("avoid_block", value, None, action, resolve, store)
 
 
 @app.post("/tools/set_break_habits", response_model=ToolCallResponse)
-def set_break_habits(body: SetBreakHabitsIn, resolve: bool = True) -> ToolCallResponse:
+def set_break_habits(body: SetBreakHabitsIn, resolve: bool = True, store: PreferenceStore = Depends(get_preference_store)) -> ToolCallResponse:
     value = {"break_minutes": body.break_minutes}
     weight = WEIGHT_MAP["max_continuous_work"][body.strength]
-    action = STORE.set("max_continuous_work", value, weight, source="chat")
-    return _tool_response("max_continuous_work", value, weight, action, resolve)
+    action = store.set("max_continuous_work", value, weight, source="chat")
+    return _tool_response("max_continuous_work", value, weight, action, resolve, store)
 
 
 @app.post("/tools/remove_preference", response_model=ToolCallResponse)
-def remove_preference(body: RemovePreferenceIn, resolve: bool = True) -> ToolCallResponse:
+def remove_preference(body: RemovePreferenceIn, resolve: bool = True, store: PreferenceStore = Depends(get_preference_store)) -> ToolCallResponse:
     try:
-        entry = STORE.remove(body.preference_type, body.match)
+        entry = store.remove(body.preference_type, body.match)
     except NothingToRemove:
         raise HTTPException(status_code=404, detail=f"no active {body.preference_type!r} preference to remove")
     except AmbiguousRemoval as exc:
@@ -279,17 +283,17 @@ def remove_preference(body: RemovePreferenceIn, resolve: bool = True) -> ToolCal
                 "candidates": [{"value": c.value, "weight": c.weight} for c in exc.candidates],
             },
         )
-    return _tool_response(entry.internal_type, entry.value, entry.weight, "removed", resolve)
+    return _tool_response(entry.internal_type, entry.value, entry.weight, "removed", resolve, store)
 
 
 @app.get("/tools/list_current_preferences", response_model=list[ActivePreferenceOut])
-def list_current_preferences() -> list[ActivePreferenceOut]:
+def list_current_preferences(store: PreferenceStore = Depends(get_preference_store)) -> list[ActivePreferenceOut]:
     return [
         ActivePreferenceOut(
             preference_type=INTERNAL_TO_TOOL.get(e.internal_type, e.internal_type),
             internal_type=e.internal_type, value=e.value, weight=e.weight, source=e.source,
         )
-        for e in STORE.list_active()
+        for e in store.list_active()
     ]
 
 
@@ -313,3 +317,9 @@ def reset() -> dict:
 @app.get("/health")
 def health() -> dict:
     return {"status": "ok", "courses": len(DATA.courses), "tasks": len(DATA.tasks)}
+
+
+# The integrated app batches the same preference endpoint handlers with an
+# isolated store, then runs the real optimizer exactly once per request.
+from preference_pipeline import register_pipeline
+register_pipeline(app)

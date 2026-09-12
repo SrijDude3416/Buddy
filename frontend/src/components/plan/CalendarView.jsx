@@ -68,6 +68,9 @@ function Block({ entry, laneCount, startHour, colorMap, onOpenTask }) {
       type="button"
       style={style}
       onClick={() => onOpenTask?.(item.taskId)}
+      data-event-id={item.id}
+      data-start={item.start}
+      data-end={item.end}
       title={`${item.action} · ${item.courseTitle} · ${item.timeLabel} · ${item.durationMin} min`}
       className={`absolute rounded-md overflow-hidden border text-left flex hover:ring-2 hover:ring-emerald-500/60 transition-shadow ${color.tint} ${color.border}`}
     >
@@ -145,9 +148,18 @@ export function CalendarView({ plan, days, selectedOffset, onSelectDay, onOpenTa
   const { startHour, endHour } = useMemo(() => visibleHourRange(plan, offsets), [plan, offsets.join(',')]);
   const hours = endHour - startHour;
   const scrollRef = useRef(null);
+  const previous = useRef(null);
+  useEffect(() => {
+    const current = plan.flexibleSessions;
+    if (previous.current) {
+      const changed = current.find(s => offsets.includes(s.dayOffset) && !previous.current.some(old => old.id === s.id && old.start === s.start && old.durationMin === s.durationMin));
+      if (changed && scrollRef.current) scrollRef.current.scrollTop = Math.max(0, ((changed.minutesIntoDay - startHour * 60) / 60) * PX_PER_HOUR - 60);
+    }
+    previous.current = current;
+  }, [plan.flexibleSessions, offsets.join(','), startHour]);
 
   return (
-    <div className="bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 rounded-xl overflow-hidden">
+    <div className="self-start bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 rounded-xl overflow-hidden">
       <div className="flex border-b border-stone-200 dark:border-stone-800">
         <div className="shrink-0" style={{ width: GUTTER }} />
         {days.map((day) => {
@@ -197,7 +209,7 @@ export function CalendarView({ plan, days, selectedOffset, onSelectDay, onOpenTa
               endHour={endHour}
               colorMap={plan.colorMap}
               onOpenTask={onOpenTask}
-              isToday={day.offset === 0}
+              isToday={!plan.windowStart && day.offset === 0}
             />
           ))}
         </div>

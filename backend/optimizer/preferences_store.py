@@ -124,8 +124,9 @@ class PreferenceStore:
             # {"days": ["Sun"]} against a daily_load_cap entry scoped to
             # exactly ["Sun"].
             narrowed = [e for e in candidates if all(e.value.get(k) == v for k, v in match.items())]
-            if narrowed:
-                candidates = narrowed
+            candidates = narrowed
+            if not candidates:
+                raise NothingToRemove(tool_type)
 
         if len(candidates) > 1:
             raise AmbiguousRemoval(tool_type, candidates)
