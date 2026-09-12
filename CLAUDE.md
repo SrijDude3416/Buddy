@@ -141,9 +141,24 @@ implementation (none of it is wired to a real backend yet):
   *after* a request already succeeded — it never participates in the
   correctness guarantee that an error/cancelled request leaves no half-applied
   preference behind (buddy/'s per-request isolated `PreferenceStore` still
-  owns that). `sessions` and `chat_messages` are the two SCHEMA.md collections
-  still not persisted — the calendar and chat transcript are still recomputed/
-  browser-held, not stored.
+  owns that). `chat_messages` is the one SCHEMA.md collection still not
+  persisted — the transcript is still browser-held only.
+
+  A page load (`GET /preferences/defaults`) no longer re-solves at all when a
+  cached plan already exists (`mongo_state.plan_cache` — not one of
+  SCHEMA.md's nine, a pure HTTP-layer cache the optimizer itself never reads;
+  see its docstring for why that's a deliberate exception) — it returns the
+  cached `{preferences, plan}` response directly. The frontend's "Confirm
+  preferences & view calendar" button skips its own redundant solve the same
+  way when nothing was customized. **Recalculate** (a button in the
+  calendar view) is the explicit way to force a fresh solve on demand — same
+  `/preferences/operations` real chat-triggered solves already use, just with
+  no new operations. Every solve now also merges in whatever the *previous*
+  cached plan showed for sessions whose `start` is already in the past
+  (real wall-clock time, not the demo's fixed `WINDOW_START` anchor) —
+  `mongo_state.merge_preserving_past()` — so a re-solve can't silently rewrite
+  a slot the user already saw happen; only sessions still in the future come
+  from the new solve.
 
 ## Frontend
 

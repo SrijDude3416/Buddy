@@ -38,6 +38,8 @@ export const optimizerApi = {
 
 export const planApi = {
   get: ({ signal } = {}) => request('getPlan', { signal }),
+  recalculate: (preferences, courseIds, { signal } = {}) =>
+    request('recalculatePlan', { body: { preferences, course_ids: courseIds }, signal }),
 };
 
 export const sessionsApi = {

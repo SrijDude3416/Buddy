@@ -7,6 +7,7 @@ leave partly applied preferences behind. No alternative scheduling algorithm.
 import os
 import time
 import threading
+from datetime import datetime
 from functools import lru_cache
 from typing import Literal
 
@@ -150,14 +151,37 @@ def register_pipeline(app):
 
         plan = to_plan_payload(result, data, api.WINDOW_START, api.WINDOW_DAYS, preferences, seconds)
 
+        # Past-preserving merge: whatever the previous cached plan showed for
+        # times already behind "now" carries over untouched, rather than a
+        # fresh solve silently rewriting a slot the user already saw/acted
+        # on. `now` is real wall-clock time (not the fixed WINDOW_START demo
+        # anchor) in the same tz WINDOW_START itself uses, then stripped to
+        # match plan_payload.py's naive session timestamps.
+        try:
+            previous = mongo_state.load_plan_cache()
+        except Exception as exc:
+            previous = None
+            print(f"[preference_pipeline] Could not load previous plan for past-preservation ({exc}); using fresh solve as-is.")
+        if previous and previous.get("plan", {}).get("sessions"):
+            now = datetime.now(api.WINDOW_START.tzinfo).replace(tzinfo=None)
+            plan["sessions"] = mongo_state.merge_preserving_past(previous["plan"]["sessions"], plan["sessions"], now)
+
+        response = {"preferences": preferences, "preference_calls": applied, "plan": plan}
+
         _try("preferences save", lambda: mongo_state.save_preferences(store))
         _try("optimizer_runs log", lambda: mongo_state.log_optimizer_run(
             status=result.status_name, inputs_snapshot=inputs_snapshot,
             objective_value=result.objective_value, best_bound=result.best_bound,
             gap=plan["run"]["gap"], solve_seconds=seconds,
         ))
+        # Cached with preference_calls: [] -- a cache HIT should look exactly
+        # like a fresh cold-start default (nothing "just applied"), matching
+        # what /preferences/defaults already returns on its own fallback path.
+        _try("plan cache save", lambda: mongo_state.save_plan_cache(
+            {"preferences": preferences, "preference_calls": [], "plan": plan}
+        ))
 
-        return {"preferences": preferences, "preference_calls": applied, "plan": plan}
+        return response
 
     @lru_cache(maxsize=1)
     def initial_plan():
@@ -180,6 +204,20 @@ def register_pipeline(app):
 
     @app.get("/preferences/defaults")
     def defaults():
-        # This cached starting plan is computed by CP-SAT from the full original
-        # static dataset. Every feedback batch above always runs a new solve.
+        # The actual "don't re-run the optimizer every page load" behavior:
+        # a page load is GET /preferences/defaults, and if apply_and_solve
+        # has ever completed for this user, mongo_state.plan_cache already
+        # has a full, current response sitting there -- return it as-is, no
+        # solve. Only a genuinely first-ever load (nothing cached yet) falls
+        # through to initial_plan()'s restore-preferences-then-solve path.
+        # The frontend's "Recalculate" button (POST /preferences/operations
+        # with no new operations) is the explicit, user-requested way to
+        # force a fresh solve -- that endpoint is untouched by this cache.
+        try:
+            cached = mongo_state.load_plan_cache()
+            if cached and cached.get("plan", {}).get("sessions"):
+                print("[preference_pipeline] Restored cached plan from MongoDB (no solve).")
+                return cached
+        except Exception as exc:
+            print(f"[preference_pipeline] Could not load cached plan ({exc}); solving fresh.")
         return initial_plan()

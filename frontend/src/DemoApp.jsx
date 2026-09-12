@@ -3,7 +3,7 @@ import { MessageCircle } from 'lucide-react';
 import { ThemeProvider } from './state/ThemeProvider.jsx';
 import { PlanProvider, usePlan } from './state/PlanProvider.jsx';
 import { ChatProvider, useChat } from './state/ChatProvider.jsx';
-import { preferencesApi } from './lib/api/index.js';
+import { preferencesApi, planApi } from './lib/api/index.js';
 import { Onboarding } from './pages/Onboarding.jsx';
 import { PlanPage } from './pages/PlanPage.jsx';
 import { TaskDetail } from './pages/TaskDetail.jsx';
@@ -20,7 +20,21 @@ function Demo({ initial, onReset }) {
   const [notice, setNotice] = useState('');
   const [task, setTask] = useState(null);
   const [answers, setAnswers] = useState(initial.answers);
+  const [recalculating, setRecalculating] = useState(false);
   async function confirm(next) {
+    // The server already computed `initial.plan` once for these exact
+    // answers on this page load (Python's GET /preferences/defaults --
+    // itself a cache hit against MongoDB when nothing's changed, not a
+    // fresh solve). Re-submitting the *same* answers through POST
+    // /preferences would force a second, redundant ~15s CP-SAT solve for a
+    // result the browser is already holding. Only actually solve again when
+    // the answers changed (via "Customize").
+    if (next === initial.answers) {
+      setFromPayload(initial.plan);
+      setNotice('');
+      setPhase('calendar');
+      return;
+    }
     setBusy(true); setError(null); setAnswers(next);
     try {
       const result = await preferencesApi.confirm(next);
@@ -28,6 +42,18 @@ function Demo({ initial, onReset }) {
       setNotice(result.notice);
       setPhase('calendar');
     } catch (e) { setError(e); } finally { setBusy(false); }
+  }
+  // Forces a fresh CP-SAT solve with the CURRENT preferences and no new
+  // operations -- no OpenAI round-trip, since nothing is being interpreted,
+  // just re-run. The explicit escape hatch for when a page load's cached
+  // plan (or the merged-in past) isn't what someone wants to see anymore.
+  async function recalculate() {
+    setRecalculating(true); setError(null);
+    try {
+      const result = await planApi.recalculate(payload.preferences, payload.courses.map(c => c._id));
+      setFromPayload(result.plan);
+      setNotice('Recalculated with your current preferences.');
+    } catch (e) { setError(e); } finally { setRecalculating(false); }
   }
   return <main className="min-h-screen p-4 sm:p-6 text-stone-900 dark:text-stone-100">
     <div className={phase === 'calendar' ? 'max-w-6xl mx-auto' : 'max-w-xl mx-auto py-10'}>
@@ -54,10 +80,12 @@ function Demo({ initial, onReset }) {
           <p>Demo week: September 12–25, 2026 · {initial.mode === 'openai' ? 'OpenAI + CP-SAT enabled' : 'OpenAI key not configured'} · Changes stay in this tab.</p>
           {notice && <details><summary className="cursor-pointer">How your preferences were applied</summary><p className="mt-1">{notice}</p></details>}
           <button disabled={sending} onClick={onReset} className="underline mr-4">Reset demo</button>
+          <button disabled={sending || recalculating} onClick={recalculate} className="underline mr-4">{recalculating ? 'Recalculating…' : 'Recalculate'}</button>
           {lastChange && <button disabled={sending} onClick={undo} className="underline text-emerald-700 dark:text-emerald-300">Undo last schedule change</button>}
         </div>
         {lastChange && <p role="status" className="mb-4 p-3 rounded-lg bg-emerald-50 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-200 text-sm">Calendar rebuilt by CP-SAT · {lastChange.preferenceCalls.length} preference API calls applied.</p>}
         {payload.run?.engine === 'CP-SAT' && <p className="text-xs text-stone-500 mb-4">Optimizer: {payload.run.solverStatus} · {payload.run.solve_seconds?.toFixed(1)}s solve time{payload.run.gap != null ? ` · ${(payload.run.gap * 100).toFixed(1)}% objective bound gap` : ''}</p>}
+        {error && <ErrorNotice error={error} onRetry={recalculate} />}
         {task ? <TaskDetail taskId={task} onBack={() => setTask(null)} /> : <PlanPage onOpenTask={setTask} />}
         {payload.unplaced?.length > 0 && <details className="mt-6 text-sm text-stone-500"><summary className="cursor-pointer">{payload.unplaced.length} unscheduled or outside-window blocks in the source plan</summary><ul className="mt-2">{payload.unplaced.map(b => <li key={b.id}>{b.title}</li>)}</ul></details>}
         <ChatSidebar />

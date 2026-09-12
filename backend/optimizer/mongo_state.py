@@ -1,11 +1,13 @@
 """
 Per-user runtime state in Mongo: `preferences` (SCHEMA.md's real field
-names/shape) and `optimizer_runs` (the durable "why" log CLAUDE.md
-describes). Both are read/write -- unlike mongo_loader.py's read-only
-courses/tasks catalog, which is why this is a separate module even though
-both lean on mongo_loader.get_db()/DEMO_USER_ID for the same connection and
-the same single-implicit-user convention buddy/'s whole demo already runs
-on (no auth yet -- root README.md).
+names/shape), `optimizer_runs` (the durable "why" log CLAUDE.md describes),
+and a `plan_cache` collection that is NOT one of SCHEMA.md's nine -- see its
+own docstring below for why that's a deliberate, narrow exception rather
+than scope creep. All three are read/write -- unlike mongo_loader.py's
+read-only courses/tasks catalog, which is why this is a separate module even
+though all of them lean on mongo_loader.get_db()/DEMO_USER_ID for the same
+connection and the same single-implicit-user convention buddy/'s whole demo
+already runs on (no auth yet -- root README.md).
 
 Persistence policy, chosen specifically to NOT touch
 preference_pipeline.py's existing per-request isolation guarantee ("an
@@ -19,11 +21,14 @@ error or cancelled request cannot leave a half-applied preference update"
     wrap these in try/except (see preference_pipeline.py) so a transient
     Mongo write failure degrades to "this session's state doesn't persist
     today," never to "the chat request the user is waiting on fails."
-  - Mongo is read from in exactly one place: /preferences/defaults' cold
-    start, to answer "what were this user's preferences last time" instead
-    of always resetting to a hardcoded default. Every other request still
-    gets its preference state from the browser-held `body.preferences` it
-    already sends -- unchanged from before this file existed.
+  - Mongo is read from in two places: /preferences/defaults' cold start
+    (first `plan_cache`, to skip solving entirely when nothing needs to
+    change; then `preferences`, to seed a real solve with what was last
+    saved if there's no cache yet) and `apply_and_solve`'s own
+    past-preserving merge (reads the previous `plan_cache` to know what
+    "the past" looked like last time). Every other request still gets its
+    preference state from the browser-held `body.preferences` it already
+    sends -- unchanged from before this file existed.
 """
 from __future__ import annotations
 
@@ -103,3 +108,63 @@ def log_optimizer_run(
             "created_at": datetime.now(timezone.utc),
         }
     )
+
+
+# --------------------------------------------------------------------------
+# plan_cache -- NOT a SCHEMA.md collection. It exists purely so a page load
+# (GET /preferences/defaults) can answer "what did we already compute" without
+# re-running CP-SAT: a full {preferences, preference_calls, plan} response,
+# one document per user, replaced wholesale on every successful solve. The
+# optimizer itself never reads this -- build_and_solve only ever sees
+# `tasks`+`preferences` (via api.DATA and store.to_preferences()), exactly as
+# before; this collection sits entirely above that boundary, at the HTTP
+# route-handler layer deciding whether to call build_and_solve at all. It is
+# derived, disposable data: deleting it just means the next load solves fresh
+# once, same as before this feature existed.
+# --------------------------------------------------------------------------
+
+
+def save_plan_cache(response: dict, user_id: str = DEMO_USER_ID) -> None:
+    db = get_db()
+    db.plan_cache.replace_one(
+        {"user_id": user_id},
+        {"user_id": user_id, **response, "cached_at": datetime.now(timezone.utc)},
+        upsert=True,
+    )
+
+
+def load_plan_cache(user_id: str = DEMO_USER_ID) -> dict | None:
+    """Returns the cached {preferences, preference_calls, plan} response, or
+    None if nothing's cached yet (a brand-new cluster, or --wipe was run).
+    Strips Mongo's own bookkeeping fields so the result is exactly the
+    response shape a caller can return as-is."""
+    db = get_db()
+    doc = db.plan_cache.find_one({"user_id": user_id})
+    if not doc:
+        return None
+    doc.pop("_id", None)
+    doc.pop("user_id", None)
+    doc.pop("cached_at", None)
+    return doc
+
+
+def merge_preserving_past(old_sessions: list[dict], new_sessions: list[dict], now: datetime) -> list[dict]:
+    """A fresh solve should never silently rewrite what the user already saw
+    happen: once a session's start time is in the past, it's part of the
+    record, not something an unrelated preference change (or just clicking
+    Recalculate) should reshuffle out from under someone mid-day. Everything
+    still in the future is free to come entirely from the new solve.
+
+    `now` and every session's `start` are the same naive local wall-clock
+    datetimes plan_payload.py already returns (tzinfo stripped before
+    serializing) -- plain datetime comparison, not a tz-aware one.
+
+    Known simplification: this partitions by time only, not by identity --
+    if `old_sessions` came from a different course/preference selection than
+    `new_sessions`, a past session from a course no longer selected still
+    carries over. Fine for a single-student demo with no course-removal flow
+    exercised yet; a real multi-selection product would want to intersect on
+    course_id too."""
+    past = [s for s in old_sessions if datetime.fromisoformat(s["start"]) < now]
+    future = [s for s in new_sessions if datetime.fromisoformat(s["start"]) >= now]
+    return past + future
