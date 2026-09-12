@@ -35,12 +35,19 @@ You (the model) never trigger a re-solve directly either way — see §2's desig
 for why that's deliberate. If a request can't be expressed by any tool in §5, say so
 to the student rather than approximating it with the closest one.
 
-## 2. 🟡 The optimizer service contract — what actually runs a solve
+## 2. 🟢 The optimizer service contract — what actually runs a solve
 
 This section didn't exist in the first version of this document, which said "a
-re-solve runs automatically" as if the machinery for that were real. It wasn't. Here's
-what's actually true, split cleanly into what exists and what's specified for someone
-to build against right now.
+re-solve runs automatically" as if the machinery for that were real. It wasn't yet —
+**it is now.** [`backend/optimizer/api.py`](backend/optimizer/api.py) is a real,
+running FastAPI service implementing everything below (plus
+[`api_models.py`](backend/optimizer/api_models.py) for the request/response shapes and
+[`preferences_store.py`](backend/optimizer/preferences_store.py) for §4's
+singleton/accumulating persistence). It's still test-data only — no live database, one
+implicit student, in-memory state that resets on restart — so treat "🟢 implemented" as
+"implemented and verified against `test-data/schedule_test_data.json`," not "wired to
+production data." See `backend/optimizer/README.md` for how to run it and a full curl
+walkthrough.
 
 ### 🟢 What's real: `build_and_solve()`
 
@@ -60,14 +67,15 @@ def build_and_solve(
     ...
 ```
 
-It's real, it's tested, and it's the *only* thing that's real about "running a solve"
-today. The only thing that calls it right now is
-[`run_prototype.py`](backend/optimizer/run_prototype.py), from a terminal. There is no
-HTTP endpoint, no orchestration that fires it when a preference changes, and no
-connection to a real database — every test run so far has loaded
-`test-data/schedule_test_data.json` by hand.
+`api.py` calls this directly — for `POST /solve` it's a straight pass-through of the
+request body; for the six tools and `GET /plan` it's called with the one test
+student's current `PreferenceStore` contents plus `ALWAYS_ON_DEFAULTS` (§6). There's
+still no connection to a real database anywhere — `api.py` loads
+`test-data/schedule_test_data.json` once at startup via the same `data_loader.py`
+every other script in this project uses, and that's the entire "student" it knows
+about.
 
-### 🟡 The design decision this implies: who's allowed to trigger a solve
+### 🟢 The design decision this implies: who's allowed to trigger a solve
 
 Not the model. A tool that says "now go solve it" would mean Gemini has to *remember*
 to call it, and has to *know when* a re-solve is warranted — neither is Gemini's job.
@@ -89,11 +97,12 @@ them:
 - **Service-to-service / this doc, §2 below**: what Next.js actually calls internally
   to get a solve done. Synchronous — see why below.
 
-### 🟡 `POST /solve` — the contract, specified here for the first time
+### 🟢 `POST /solve` — implemented, matching the contract below exactly
 
-Proposed name, not fixed in stone; coordinate with whoever builds the Next.js side
-before treating the path as final. The shape is what matters and is meant to be built
-against now.
+The path itself is still a proposal as far as the eventual *production* service goes
+(coordinate with whoever builds the Next.js side before treating `/solve` as final
+there) — but `api.py`'s implementation matches every field below precisely, verified
+by actually running requests against it, not just by reading the code.
 
 **Synchronous, not async.** A solve takes 10-20 seconds (see
 `backend/optimizer/README.md`'s "Round 4" for the actual measured numbers — this
@@ -205,6 +214,31 @@ this is the real, complete enum, not a subset:
 service has no opinion on. Whatever calls `/solve` needs to translate `placed`/
 `unplaced` entries into real `sessions` documents; that translation isn't specified
 here because it isn't this service's job.
+
+### 🟢 The six tools, `GET /plan`, and how they connect — all implemented
+
+Every tool in §5 is a real endpoint, `POST /tools/<tool_name>` (e.g. `POST
+/tools/set_daily_workload_limit`), body shaped exactly like `tool_schemas.json`'s
+parameters. Each one: validates the request, maps `strength` → weight via §10's table
+(never a caller-supplied number, per §3), applies §4's singleton/accumulating rule
+through `PreferenceStore`, and — this is the "backend-owned side effect" from the
+design decision above, made real — automatically re-solves and caches the result.
+`remove_preference` is `POST /tools/remove_preference`; an ambiguous `match` returns
+`409` with the candidate list (§7), no active entry of that type returns `404`.
+`list_current_preferences` is `GET /tools/list_current_preferences`.
+
+`GET /plan` returns the most recent solve for the one test student, re-solving once
+against an empty preference set if nothing has run yet rather than erroring — a fresh
+student with nothing set still has a real, plain schedule to show.
+
+**One interpretation this implementation had to make, not spelled out in the original
+spec:** §6's always-on defaults (spread/urgency/min-gap) apply to `POST /solve` too,
+not just tool-triggered solves — read as "shapes every schedule, full stop." If that's
+wrong, it's a one-line change in `api.py`'s `ALWAYS_ON_DEFAULTS` usage, not a design
+problem, but it was a real judgment call worth someone confirming.
+
+Two endpoints exist only for manual testing and aren't part of this spec:
+`POST /reset` (clears all state) and `GET /health`.
 
 ### 🔴 Not specified anywhere yet
 
@@ -486,10 +520,13 @@ used throughout §3 means these specific weights should carry over safely to a s
 window without re-tuning — day-based terms only get smaller as the window shrinks —
 but that's an expectation, not something re-verified at 7 days yet.
 
-`remove_preference` and `list_current_preferences` aren't preference *types* — they
-need their own small API surface (find/delete by type+scope, list by student) rather
-than a `compile_all()` entry; nothing for these exists in the Python layer yet.
+`remove_preference` and `list_current_preferences` aren't preference *types* — their
+own small API surface (find/delete by type+scope, list by student) lives in
+`preferences_store.py`'s `PreferenceStore`, not `compile_all()`.
 
-`POST /solve` (§2) doesn't exist as code yet either — it's specified precisely enough
-in §2 to build the Next.js side of the integration against right now, in parallel with
-the actual FastAPI implementation.
+`POST /solve`, all six tools under `/tools/`, and `GET /plan` are implemented in
+`backend/optimizer/api.py` (models in `api_models.py`, persistence in
+`preferences_store.py`) and verified end-to-end against real requests — including the
+error paths (`409` ambiguous removal, `404` nothing to remove, `422` validation). Still
+missing: the Next.js-facing `/optimizer/runs` async wrapper (§2's other layer), auth,
+and any connection to a real database — this is still one in-memory test student.

@@ -1,15 +1,17 @@
 # optimizer
 
-Prototype for the CP-SAT scheduling engine described in `CLAUDE.md`. Working
-against `test-data/schedule_test_data.json` (Carlos's own Notion + Calendar
-export) rather than real Mongo data, so the pieces here are dependency-free
-(no pydantic/FastAPI yet) and easy to read.
+CP-SAT scheduling engine described in `CLAUDE.md`, plus a real FastAPI service
+(`api.py`) wrapping it. Both work against `test-data/schedule_test_data.json`
+(Carlos's own Notion + Calendar export) rather than real Mongo data -- the solver
+core (`data_loader.py` through `run_prototype.py`) stays dependency-free on
+purpose; `api.py`/`api_models.py` are the one place this project takes on
+FastAPI/pydantic, because that's what an HTTP boundary actually needs.
 
-**If you're building the AI-facing or FastAPI layer on top of this, start at
-[`PREFERENCE_API.md`](../../PREFERENCE_API.md) (repo root), not here.** It's the
-self-contained spec for every tool an LLM calls, the exact weight each one maps to
-and why, and what's deliberately not exposed. `tool_schemas.json` in this directory
-is its paste-ready JSON-Schema companion.
+**Start at [`PREFERENCE_API.md`](../../PREFERENCE_API.md) (repo root) for the *why*
+of every endpoint below** -- every tool an LLM calls, the exact weight each one maps
+to and why, and what's deliberately not exposed. This file is the *how to run it*;
+that one is the spec it's implementing. `tool_schemas.json` in this directory is the
+spec's paste-ready JSON-Schema companion.
 
 ## Setup
 
@@ -18,6 +20,50 @@ python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 ```
+
+## Running the API
+
+```
+source .venv/bin/activate
+uvicorn api:app --reload --port 8000
+```
+
+Loads `test-data/schedule_test_data.json` once at startup (one implicit test
+student, in-memory preferences, reset on restart -- see `PREFERENCE_API.md` §2 for
+why this is deliberate, not a shortcut). `http://localhost:8000/docs` has the full
+interactive Swagger UI. A curl walkthrough of the real tool-calling loop:
+
+```bash
+curl -X POST localhost:8000/reset   # clean slate
+
+# Stack up a few preferences fast without waiting ~15s for a solve each time
+# (resolve=false is a testing-only escape hatch, not part of the spec):
+curl -X POST "localhost:8000/tools/set_daily_workload_limit?resolve=false" \
+  -H "Content-Type: application/json" -d '{"minutes_per_day": 240}'
+curl -X POST "localhost:8000/tools/protect_time_block?resolve=false" \
+  -H "Content-Type: application/json" \
+  -d '{"days": ["Fri", "Sat"], "start_time": "19:00", "end_time": "24:00"}'
+
+curl localhost:8000/tools/list_current_preferences   # confirm both are active
+
+# This one resolves for real (~15s) -- the response includes a solve summary:
+curl -X POST localhost:8000/tools/set_break_habits \
+  -H "Content-Type: application/json" -d '{"break_minutes": 45}'
+
+curl localhost:8000/plan   # the full cached result: every placed/unplaced session
+```
+
+`POST /solve` is the other real endpoint -- stateless, takes a complete payload
+(courses/tasks/preferences all inline, no reference to the test student), for
+whoever's building the Next.js side to call directly. See `PREFERENCE_API.md` §2
+for its exact request/response shape.
+
+Every failure mode `PREFERENCE_API.md` §7 promises is real and was verified by
+actually calling it, not just implemented and assumed correct: a bad `strength`
+enum or malformed time string is a `422` with a field-level message, an ambiguous
+`remove_preference` is a `409` with the candidate list, removing something that
+isn't active is a `404`, and a `/solve` task referencing a nonexistent `course_id`
+is a `422` before any solving starts.
 
 ## Files
 
@@ -55,6 +101,26 @@ pip install -r requirements.txt
   those two runs baked in as static JSON rather than reading `output_*.json`
   live -- re-embed the `<script type="application/json">` blocks by hand if
   the model or test data changes and the preview needs to reflect it.
+- `api.py` -- the FastAPI service implementing `PREFERENCE_API.md`: `POST /solve`
+  (stateless), the six `/tools/*` endpoints, and `GET /plan`, all against the one
+  test student loaded from `test-data/schedule_test_data.json` at startup. See
+  "Running the API" above.
+- `api_models.py` -- every request/response pydantic model, one file separate
+  from the endpoint wiring on purpose (same one-concern-per-file split as the
+  rest of this package). Validation here is what produces `PREFERENCE_API.md`
+  §7's `422`s -- enum/pattern/range checks plus the one cross-field check
+  (`SolveRequest`: every task's `course_id` has to match a real course) that
+  pydantic's per-field validators can't express alone.
+- `preferences_store.py` -- the first real implementation of `PREFERENCE_API.md`
+  §4's persistence model: `WEIGHT_MAP` (§10's strength -> weight table, verbatim),
+  the tool-facing-name <-> internal-`Preference.type` mapping, and
+  `PreferenceStore`, which knows which types are singletons vs. accumulate-by-scope
+  and raises a typed, catchable error (`AmbiguousRemoval`, listing candidates) when
+  a removal can't be disambiguated rather than guessing.
+- `tool_schemas.json` -- `PREFERENCE_API.md`'s paste-ready JSON-Schema companion
+  (Gemini/OpenAI/Claude-compatible function declarations). Not read by `api.py` --
+  it's for whatever calls this API with a tool-using model, not for this service
+  itself.
 
 ## What the preference feedback loop found
 
