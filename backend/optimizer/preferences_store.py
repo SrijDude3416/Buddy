@@ -137,6 +137,18 @@ class PreferenceStore:
     def list_active(self) -> list[_Entry]:
         return list(self._entries)
 
+    def remove_by_source(self, source: str) -> int:
+        """Drop every entry written by a given source (e.g. 'onboarding'),
+        regardless of internal_type/scope. Not part of PREFERENCE_API.md's
+        tool-facing surface (tools always act on one type at a time, per
+        §4) -- this exists for frontend_bridge.py's /api/preferences,
+        which mirrors createPreferences's `replace_source` semantics: an
+        onboarding re-submit should replace the prior onboarding batch
+        wholesale, not accumulate next to it. Returns the number removed."""
+        before = len(self._entries)
+        self._entries = [e for e in self._entries if e.source != source]
+        return before - len(self._entries)
+
     def to_preferences(self) -> list[Preference]:
         """The raw list scheduler.build_and_solve() takes. Always-on system
         defaults (spread_multi_session_tasks, urgency_priority,
